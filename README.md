@@ -90,4 +90,4 @@ Not included:
 
 ## License
 
-No license has been selected yet.
+This project is licensed under the MIT License.
