@@ -80,3 +80,20 @@ def test_analytics_ingestion_updates_summary_dimensions_and_unique_visitors() ->
     assert countries[0].clicks == 2
     assert top_links[0].key == "docs"
     assert top_links[0].clicks == 2
+
+
+def test_analytics_query_supports_year_range_for_daily_heatmap() -> None:
+    query = AnalyticsQueryService(
+        InMemoryClickEventRepository(),
+        InMemoryAnalyticsAggregateRepository(),
+        InMemoryLinkRepository(),
+    )
+
+    date_range = query.resolve_date_range(
+        range_name="365d",
+        today=datetime(2026, 6, 20, tzinfo=UTC).date(),
+    )
+
+    assert date_range.days == 365
+    assert date_range.start_date.isoformat() == "2025-06-21"
+    assert date_range.end_date.isoformat() == "2026-06-20"

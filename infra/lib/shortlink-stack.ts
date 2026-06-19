@@ -10,6 +10,7 @@ import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as eventSources from "aws-cdk-lib/aws-lambda-event-sources";
+import * as iam from "aws-cdk-lib/aws-iam";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as s3deploy from "aws-cdk-lib/aws-s3-deployment";
 import * as sqs from "aws-cdk-lib/aws-sqs";
@@ -47,13 +48,31 @@ export class ShortLinkStack extends cdk.Stack {
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
+    const tenantsTable = new dynamodb.Table(this, "TenantsTable", {
+      partitionKey: { name: "tenant_id", type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: RemovalPolicy.DESTROY,
+    });
+
     const clickEventsQueue = new sqs.Queue(this, "ClickEventsQueue", {
       visibilityTimeout: Duration.seconds(30),
     });
 
     const userPool = new cognito.UserPool(this, "UserPool", {
-      selfSignUpEnabled: false,
+      selfSignUpEnabled: true,
       signInAliases: { email: true },
+      autoVerify: { email: true },
+      customAttributes: {
+        tenant_id: new cognito.StringAttribute({ mutable: false, minLen: 3, maxLen: 64 }),
+        role: new cognito.StringAttribute({ mutable: false, minLen: 3, maxLen: 32 }),
+      },
+      passwordPolicy: {
+        minLength: 12,
+        requireDigits: true,
+        requireLowercase: true,
+        requireSymbols: false,
+        requireUppercase: true,
+      },
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
@@ -80,6 +99,10 @@ export class ShortLinkStack extends cdk.Stack {
       authFlows: {
         userSrp: true,
       },
+      writeAttributes: new cognito.ClientAttributes().withStandardAttributes({ email: true }),
+      readAttributes: new cognito.ClientAttributes()
+        .withStandardAttributes({ email: true, emailVerified: true })
+        .withCustomAttributes("tenant_id", "role"),
       oAuth: {
         flows: {
           authorizationCodeGrant: true,
@@ -90,6 +113,38 @@ export class ShortLinkStack extends cdk.Stack {
       },
       preventUserExistenceErrors: true,
     });
+
+    const registrationUserPoolClient = new cognito.UserPoolClient(
+      this,
+      "RegistrationUserPoolClient",
+      {
+        userPool,
+        generateSecret: true,
+        authFlows: {
+          userSrp: true,
+        },
+        oAuth: {
+          flows: {},
+          scopes: [],
+          callbackUrls: [],
+          logoutUrls: [],
+        },
+        preventUserExistenceErrors: true,
+        writeAttributes: new cognito.ClientAttributes()
+          .withStandardAttributes({ email: true })
+          .withCustomAttributes("tenant_id", "role"),
+        readAttributes: new cognito.ClientAttributes()
+          .withStandardAttributes({ email: true, emailVerified: true })
+          .withCustomAttributes("tenant_id", "role"),
+      },
+    );
+    const registrationUserPoolClientResource =
+      registrationUserPoolClient.node.defaultChild as cognito.CfnUserPoolClient;
+    registrationUserPoolClientResource.addPropertyDeletionOverride(
+      "AllowedOAuthFlowsUserPoolClient",
+    );
+    registrationUserPoolClientResource.addPropertyDeletionOverride("AllowedOAuthScopes");
+    registrationUserPoolClientResource.addPropertyDeletionOverride("LogoutURLs");
 
     const userPoolDomain = new cognito.UserPoolDomain(this, "UserPoolDomain", {
       userPool,
@@ -102,6 +157,7 @@ export class ShortLinkStack extends cdk.Stack {
         exclude: [
           ".venv",
           ".pytest_cache",
+          ".pytest_cache_codex",
           ".ruff_cache",
           "__pycache__",
           "**/__pycache__",
@@ -122,11 +178,18 @@ export class ShortLinkStack extends cdk.Stack {
 
     const backendEnvironment = {
       SHORTLINK_LINKS_TABLE_NAME: linksTable.tableName,
+      SHORTLINK_TENANTS_TABLE_NAME: tenantsTable.tableName,
       SHORTLINK_CLICK_EVENTS_TABLE_NAME: clickEventsTable.tableName,
       SHORTLINK_ANALYTICS_AGGREGATES_TABLE_NAME: analyticsAggregatesTable.tableName,
       SHORTLINK_CLICK_EVENTS_QUEUE_URL: clickEventsQueue.queueUrl,
       SHORTLINK_USER_POOL_ID: userPool.userPoolId,
       SHORTLINK_USER_POOL_CLIENT_ID: userPoolClient.userPoolClientId,
+    };
+    const registrationEnvironment = {
+      SHORTLINK_COGNITO_REGISTRATION_CLIENT_ID:
+        registrationUserPoolClient.userPoolClientId,
+      SHORTLINK_COGNITO_REGISTRATION_CLIENT_SECRET:
+        registrationUserPoolClient.userPoolClientSecret.unsafeUnwrap(),
     };
 
     const backendFunction = new lambda.Function(this, "BackendFunction", {
@@ -135,7 +198,10 @@ export class ShortLinkStack extends cdk.Stack {
       code: backendCode,
       timeout: Duration.seconds(10),
       memorySize: 512,
-      environment: backendEnvironment,
+      environment: {
+        ...backendEnvironment,
+        ...registrationEnvironment,
+      },
     });
 
     const clickEventConsumerFunction = new lambda.Function(this, "ClickEventConsumerFunction", {
@@ -148,12 +214,19 @@ export class ShortLinkStack extends cdk.Stack {
     });
 
     linksTable.grantReadWriteData(backendFunction);
+    tenantsTable.grantReadWriteData(backendFunction);
     clickEventsTable.grantReadWriteData(backendFunction);
     analyticsAggregatesTable.grantReadWriteData(backendFunction);
     clickEventsQueue.grantSendMessages(backendFunction);
     clickEventsTable.grantReadWriteData(clickEventConsumerFunction);
     analyticsAggregatesTable.grantReadWriteData(clickEventConsumerFunction);
     clickEventsQueue.grantConsumeMessages(clickEventConsumerFunction);
+    backendFunction.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["cognito-idp:SignUp"],
+        resources: [userPool.userPoolArn],
+      }),
+    );
     clickEventConsumerFunction.addEventSource(
       new eventSources.SqsEventSource(clickEventsQueue, {
         batchSize: 10,
@@ -187,6 +260,11 @@ export class ShortLinkStack extends cdk.Stack {
     api.addRoutes({
       path: "/health",
       methods: [apigatewayv2.HttpMethod.GET],
+      integration: backendIntegration,
+    });
+    api.addRoutes({
+      path: "/tenants/register",
+      methods: [apigatewayv2.HttpMethod.POST],
       integration: backendIntegration,
     });
     api.addRoutes({
@@ -283,6 +361,8 @@ function handler(event) {
         "links/*": frontendBehavior,
         "login": frontendBehavior,
         "logout": frontendBehavior,
+        "register": frontendBehavior,
+        "twinqx-logo.jpg": frontendBehavior,
       },
       defaultRootObject: "index.html",
     });

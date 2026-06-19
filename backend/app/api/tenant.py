@@ -1,3 +1,7 @@
+class MissingTenantClaimError(Exception):
+    """Raised when an authenticated request has no tenant claim."""
+
+
 def get_tenant_id_from_event(event: dict[str, object] | None) -> str:
     if not event:
         return "default-tenant"
@@ -18,3 +22,10 @@ def get_tenant_id_from_event(event: dict[str, object] | None) -> str:
     if isinstance(tenant_id, str) and tenant_id:
         return tenant_id
     return "default-tenant"
+
+
+def require_tenant_id_from_event(event: dict[str, object] | None) -> str:
+    tenant_id = get_tenant_id_from_event(event)
+    if tenant_id == "default-tenant":
+        raise MissingTenantClaimError("Missing tenant claim.")
+    return tenant_id

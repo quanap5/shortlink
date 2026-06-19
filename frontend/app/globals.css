@@ -8,11 +8,77 @@
 
 body {
   margin: 0;
-  background: #f5f7fb;
-  color: #17202a;
+  background:
+    linear-gradient(rgba(42, 26, 18, 0.1) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(42, 26, 18, 0.1) 1px, transparent 1px),
+    #f4ecd8;
+  background-size: 32px 32px;
+  color: #2a1a12;
+  font-feature-settings: "tnum";
 }
 
 a {
   color: inherit;
   text-decoration: none;
+}
+
+@layer components {
+  .retro-card {
+    border: 4px solid #2a1a12;
+    background: #f4ecd8;
+    box-shadow: 6px 6px 0 #2a1a12;
+  }
+
+  .retro-card-white {
+    border: 4px solid #2a1a12;
+    background: #ffffff;
+    box-shadow: 6px 6px 0 #2a1a12;
+  }
+
+  .retro-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 3px solid #2a1a12;
+    font-weight: 800;
+    box-shadow: 4px 4px 0 #2a1a12;
+    transition:
+      transform 160ms ease,
+      box-shadow 160ms ease;
+  }
+
+  .retro-button:hover {
+    transform: translate(-1px, -1px);
+    box-shadow: 5px 5px 0 #2a1a12;
+  }
+
+  .retro-button:focus-visible {
+    outline: 4px solid #d4a03e;
+    outline-offset: 2px;
+  }
+
+  .retro-button-primary {
+    background: #d4a03e;
+    color: #2a1a12;
+  }
+
+  .retro-button-secondary {
+    background: #ffffff;
+    color: #2a1a12;
+  }
+
+  .retro-input {
+    min-height: 44px;
+    width: 100%;
+    border: 4px solid #2a1a12;
+    background: #f4ecd8;
+    padding: 0.5rem 0.75rem;
+    font-weight: 700;
+    color: #2a1a12;
+    outline: none;
+  }
+
+  .retro-input:focus {
+    box-shadow: 0 0 0 4px #d4a03e;
+  }
 }

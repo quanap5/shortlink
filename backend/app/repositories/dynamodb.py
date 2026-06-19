@@ -6,19 +6,21 @@ import boto3
 from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 
-from app.domain.errors import LinkAlreadyExistsError
+from app.domain.errors import LinkAlreadyExistsError, TenantAlreadyExistsError
 from app.domain.models import (
     AnalyticsAggregate,
     ClickEvent,
     Link,
     LinkAnalyticsListItem,
     LinkAnalyticsSummary,
+    Tenant,
 )
 from app.repositories.interfaces import (
     AnalyticsAggregateRepository,
     ClickEventPublisher,
     ClickEventRepository,
     LinkRepository,
+    TenantRepository,
 )
 
 
@@ -34,6 +36,9 @@ class DynamoDBLinkRepository(LinkRepository):
             "target_url": link.target_url,
             "created_at": link.created_at.isoformat(),
             "created_by": link.created_by,
+            "expire_at": link.expire_at.isoformat() if link.expire_at else None,
+            "status": link.status,
+            "redirect_type": link.redirect_type,
         }
         try:
             condition = "attribute_not_exists(tenant_id) AND attribute_not_exists(slug)"
@@ -58,6 +63,9 @@ class DynamoDBLinkRepository(LinkRepository):
             target_url=item["target_url"],
             created_at=datetime.fromisoformat(item["created_at"]),
             created_by=item.get("created_by"),
+            expire_at=_datetime_or_none(item.get("expire_at")),
+            status=item.get("status", "active"),
+            redirect_type=int(item.get("redirect_type", 302)),
         )
 
     def list_by_tenant(self, tenant_id: str) -> list[Link]:
@@ -72,9 +80,44 @@ class DynamoDBLinkRepository(LinkRepository):
                 target_url=item["target_url"],
                 created_at=datetime.fromisoformat(item["created_at"]),
                 created_by=item.get("created_by"),
+                expire_at=_datetime_or_none(item.get("expire_at")),
+                status=item.get("status", "active"),
+                redirect_type=int(item.get("redirect_type", 302)),
             )
             for item in response.get("Items", [])
         ]
+
+
+class DynamoDBTenantRepository(TenantRepository):
+    def __init__(self, table_name: str, dynamodb_resource: Any | None = None) -> None:
+        resource = dynamodb_resource or boto3.resource("dynamodb")
+        self._table = resource.Table(table_name)
+
+    def create(self, tenant: Tenant) -> Tenant:
+        try:
+            self._table.put_item(
+                Item={
+                    "tenant_id": tenant.tenant_id,
+                    "name": tenant.name,
+                    "owner_email": tenant.owner_email,
+                    "status": tenant.status,
+                    "created_at": tenant.created_at.isoformat(),
+                },
+                ConditionExpression="attribute_not_exists(tenant_id)",
+            )
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+                raise TenantAlreadyExistsError(tenant.tenant_id) from exc
+            raise
+        return tenant
+
+    def get(self, tenant_id: str) -> Tenant | None:
+        response = self._table.get_item(Key={"tenant_id": tenant_id})
+        item = response.get("Item")
+        return _tenant_from_item(item) if item else None
+
+    def delete(self, tenant_id: str) -> None:
+        self._table.delete_item(Key={"tenant_id": tenant_id})
 
 
 class DynamoDBClickEventRepository(ClickEventPublisher, ClickEventRepository):
@@ -227,7 +270,23 @@ def _aggregate_from_item(item: dict[str, Any]) -> AnalyticsAggregate:
     )
 
 
+def _tenant_from_item(item: dict[str, Any]) -> Tenant:
+    return Tenant(
+        tenant_id=str(item["tenant_id"]),
+        name=str(item["name"]),
+        owner_email=str(item["owner_email"]),
+        status=str(item["status"]),  # type: ignore[arg-type]
+        created_at=datetime.fromisoformat(str(item["created_at"])),
+    )
+
+
 def _float_or_none(value: Any) -> float | None:
     if value is None or value == "":
         return None
     return float(value)
+
+
+def _datetime_or_none(value: Any) -> datetime | None:
+    if not value:
+        return None
+    return datetime.fromisoformat(str(value))

@@ -1,22 +1,25 @@
 from functools import lru_cache
 
-from fastapi import Request
+from fastapi import HTTPException, Request, status
 
-from app.api.tenant import get_tenant_id_from_event
+from app.api.tenant import MissingTenantClaimError, require_tenant_id_from_event
 from app.core.config import get_settings
 from app.repositories.interfaces import (
     AnalyticsAggregateRepository,
     ClickEventPublisher,
     ClickEventRepository,
     LinkRepository,
+    TenantRepository,
 )
 from app.repositories.memory import (
     InMemoryAnalyticsAggregateRepository,
     InMemoryClickEventRepository,
     InMemoryLinkRepository,
+    InMemoryTenantRepository,
 )
 from app.services.analytics import AnalyticsQueryService
 from app.services.links import ClickEventService, LinkCreationService, RedirectService
+from app.services.tenants import TenantRegistrationService
 
 
 @lru_cache
@@ -27,6 +30,16 @@ def get_link_repository() -> LinkRepository:
 
         return DynamoDBLinkRepository(settings.links_table_name)
     return InMemoryLinkRepository()
+
+
+@lru_cache
+def get_tenant_repository() -> TenantRepository:
+    settings = get_settings()
+    if settings.tenants_table_name:
+        from app.repositories.dynamodb import DynamoDBTenantRepository
+
+        return DynamoDBTenantRepository(settings.tenants_table_name)
+    return InMemoryTenantRepository()
 
 
 @lru_cache
@@ -86,8 +99,31 @@ def get_analytics_query_service() -> AnalyticsQueryService:
     )
 
 
+@lru_cache
+def get_cognito_registration():
+    settings = get_settings()
+    if settings.cognito_registration_client_id and settings.cognito_registration_client_secret:
+        from app.repositories.cognito import CognitoRegistrationAdapter
+
+        return CognitoRegistrationAdapter(
+            client_id=settings.cognito_registration_client_id,
+            client_secret=settings.cognito_registration_client_secret,
+        )
+    raise RuntimeError("Cognito registration is not configured.")
+
+
+def get_tenant_registration_service() -> TenantRegistrationService:
+    return TenantRegistrationService(get_tenant_repository(), get_cognito_registration())
+
+
 def get_tenant_id(request: Request) -> str:
     event = request.scope.get("aws.event")
     if isinstance(event, dict):
-        return get_tenant_id_from_event(event)
+        try:
+            return require_tenant_id_from_event(event)
+        except MissingTenantClaimError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Missing tenant claim.",
+            ) from exc
     return "default-tenant"

@@ -1,5 +1,10 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Literal
+
+LinkStatus = Literal["active", "disabled", "expired"]
+RedirectType = Literal[301, 302, 307]
+TenantStatus = Literal["pending_verification", "active", "failed"]
 
 
 @dataclass(frozen=True)
@@ -9,6 +14,18 @@ class Link:
     target_url: str
     created_at: datetime
     created_by: str | None = None
+    expire_at: datetime | None = None
+    status: LinkStatus = "active"
+    redirect_type: RedirectType = 302
+
+
+@dataclass(frozen=True)
+class Tenant:
+    tenant_id: str
+    name: str
+    owner_email: str
+    status: TenantStatus
+    created_at: datetime
 
 
 @dataclass(frozen=True)

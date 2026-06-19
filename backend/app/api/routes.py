@@ -12,8 +12,15 @@ from app.api.dependencies import (
     get_link_repository,
     get_redirect_service,
     get_tenant_id,
+    get_tenant_registration_service,
 )
-from app.domain.errors import LinkAlreadyExistsError, LinkNotFoundError
+from app.domain.errors import (
+    LinkAlreadyExistsError,
+    LinkInactiveError,
+    LinkNotFoundError,
+    TenantAlreadyExistsError,
+    TenantRegistrationError,
+)
 from app.domain.models import AnalyticsBreakdownItem
 from app.repositories.interfaces import LinkRepository
 from app.schemas.analytics import (
@@ -28,8 +35,10 @@ from app.schemas.analytics import (
     LinkAnalyticsResponse,
 )
 from app.schemas.links import CreateLinkRequest, LinkResponse, LinksResponse
+from app.schemas.tenants import RegisterTenantRequest, RegisterTenantResponse
 from app.services.analytics import AnalyticsQueryService
 from app.services.links import ClickEventService, LinkCreationService, RedirectService
+from app.services.tenants import TenantRegistrationService
 
 router = APIRouter()
 
@@ -39,11 +48,53 @@ LinkRepositoryDependency = Annotated[LinkRepository, Depends(get_link_repository
 RedirectDependency = Annotated[RedirectService, Depends(get_redirect_service)]
 ClickEventDependency = Annotated[ClickEventService, Depends(get_click_event_service)]
 AnalyticsQueryDependency = Annotated[AnalyticsQueryService, Depends(get_analytics_query_service)]
+TenantRegistrationDependency = Annotated[
+    TenantRegistrationService,
+    Depends(get_tenant_registration_service),
+]
 
 
 @router.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@router.post(
+    "/tenants/register",
+    response_model=RegisterTenantResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def register_tenant(
+    payload: RegisterTenantRequest,
+    service: TenantRegistrationDependency,
+) -> RegisterTenantResponse:
+    try:
+        tenant = service.register_tenant(
+            tenant_name=payload.tenant_name,
+            owner_email=payload.owner_email,
+            password=payload.password,
+        )
+    except TenantAlreadyExistsError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Tenant already exists.",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    except TenantRegistrationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Unable to complete registration.",
+        ) from exc
+    return RegisterTenantResponse(
+        tenant_id=tenant.tenant_id,
+        name=tenant.name,
+        owner_email=tenant.owner_email,
+        status=tenant.status,
+    )
 
 
 @router.post("/links", response_model=LinkResponse, status_code=status.HTTP_201_CREATED)
@@ -56,7 +107,11 @@ def create_link(
         link = service.create_link(
             tenant_id=tenant_id,
             slug=payload.slug,
-            target_url=str(payload.target_url),
+            target_url=payload.target_url,
+            expire_at=payload.expire_at,
+            expire_after_days=payload.expire_after_days,
+            status=payload.status,
+            redirect_type=payload.redirect_type,
         )
     except LinkAlreadyExistsError as exc:
         raise HTTPException(
@@ -246,7 +301,7 @@ def redirect_link(
 ) -> RedirectResponse:
     try:
         link = redirect_service.resolve(tenant_id=tenant_id, slug=slug)
-    except LinkNotFoundError as exc:
+    except (LinkNotFoundError, LinkInactiveError) as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Link not found") from exc
 
     visitor_id = request.cookies.get("shortlink_vid") or _new_visitor_id()
@@ -261,10 +316,12 @@ def redirect_link(
         country=request.headers.get("cloudfront-viewer-country-name"),
         region=request.headers.get("cloudfront-viewer-country-region-name"),
         city=request.headers.get("cloudfront-viewer-city"),
+        latitude=_float_header(request, "cloudfront-viewer-latitude"),
+        longitude=_float_header(request, "cloudfront-viewer-longitude"),
         referrer=request.headers.get("referer"),
         visitor_id=visitor_id,
     )
-    response = RedirectResponse(url=link.target_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+    response = RedirectResponse(url=link.target_url, status_code=link.redirect_type)
     if "shortlink_vid" not in request.cookies:
         response.set_cookie(
             "shortlink_vid",
@@ -296,6 +353,16 @@ def _client_ip(request: Request) -> str | None:
     if forwarded_for:
         return forwarded_for.split(",", 1)[0].strip()
     return request.client.host if request.client else None
+
+
+def _float_header(request: Request, header_name: str) -> float | None:
+    value = request.headers.get(header_name)
+    if not value:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
 
 
 def _new_visitor_id() -> str:

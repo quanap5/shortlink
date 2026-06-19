@@ -1,17 +1,21 @@
+import ipaddress
 import logging
 import re
 import secrets
 from collections.abc import Callable
+from datetime import datetime, timedelta
 from hashlib import sha256
 from urllib.parse import urlparse
 
-from app.domain.errors import LinkAlreadyExistsError, LinkNotFoundError
-from app.domain.models import ClickEvent, Link, utc_now
+from app.domain.errors import LinkAlreadyExistsError, LinkInactiveError, LinkNotFoundError
+from app.domain.models import ClickEvent, Link, LinkStatus, RedirectType, utc_now
 from app.repositories.interfaces import ClickEventPublisher, LinkRepository
 
 logger = logging.getLogger(__name__)
-SLUG_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{3,64}$")
+SLUG_PATTERN = re.compile(r"^[a-z0-9-_]{3,64}$")
 MAX_GENERATED_SLUG_ATTEMPTS = 8
+PRIVATE_HOSTNAMES = {"localhost"}
+INTERNAL_HOST_SUFFIXES = (".internal", ".local", ".localhost", ".lan")
 
 
 class LinkCreationService:
@@ -30,10 +34,26 @@ class LinkCreationService:
         slug: str | None,
         target_url: str,
         created_by: str | None = None,
+        expire_at: datetime | None = None,
+        expire_after_days: int | None = None,
+        status: LinkStatus = "active",
+        redirect_type: RedirectType = 302,
+        now: datetime | None = None,
     ) -> Link:
-        slug = slug.strip() if slug else self._generate_available_slug(tenant_id)
+        now = now or utc_now()
+        slug = normalize_slug(slug) if slug else self._generate_available_slug(tenant_id)
         if not SLUG_PATTERN.fullmatch(slug):
-            raise ValueError("Slug must be 3-64 characters and URL-safe.")
+            raise ValueError("Slug must match ^[a-z0-9-_]{3,64}$.")
+        target_url = validate_target_url(target_url)
+        expire_at = resolve_expiration(
+            expire_at=expire_at,
+            expire_after_days=expire_after_days,
+            now=now,
+        )
+        if status not in ("active", "disabled", "expired"):
+            raise ValueError("Status must be active, disabled, or expired.")
+        if redirect_type not in (301, 302, 307):
+            raise ValueError("Redirect type must be 301, 302, or 307.")
         if self._links.get(tenant_id, slug):
             raise LinkAlreadyExistsError(slug)
 
@@ -41,8 +61,11 @@ class LinkCreationService:
             tenant_id=tenant_id,
             slug=slug,
             target_url=target_url,
-            created_at=utc_now(),
+            created_at=now,
             created_by=created_by,
+            expire_at=expire_at,
+            status=status,
+            redirect_type=redirect_type,
         )
         logger.info("link_created tenant_id=%s slug=%s", tenant_id, slug)
         return self._links.create(link)
@@ -59,10 +82,15 @@ class RedirectService:
     def __init__(self, links: LinkRepository) -> None:
         self._links = links
 
-    def resolve(self, *, tenant_id: str, slug: str) -> Link:
+    def resolve(self, *, tenant_id: str, slug: str, now: datetime | None = None) -> Link:
         link = self._links.get(tenant_id, slug)
         if link is None:
             raise LinkNotFoundError(slug)
+        now = now or utc_now()
+        if link.status == "disabled":
+            raise LinkInactiveError("Link is disabled.")
+        if link.status == "expired" or (link.expire_at is not None and link.expire_at <= now):
+            raise LinkInactiveError("Link is expired.")
         return link
 
 
@@ -117,7 +145,60 @@ class ClickEventService:
 
 
 def generate_slug() -> str:
-    return secrets.token_urlsafe(6).replace("-", "_")[:8]
+    return secrets.token_hex(4)
+
+
+def normalize_slug(slug: str) -> str:
+    return slug.strip().lower()
+
+
+def validate_target_url(target_url: str) -> str:
+    parsed = urlparse(target_url.strip())
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError("Target URL must use http or https.")
+    if not parsed.netloc or not parsed.hostname:
+        raise ValueError("Target URL must include a valid host.")
+    hostname = parsed.hostname.strip().lower()
+    if hostname in PRIVATE_HOSTNAMES or hostname.endswith(INTERNAL_HOST_SUFFIXES):
+        raise ValueError("Target URL cannot use localhost or internal hostnames.")
+    if "." not in hostname and not _is_ip_address(hostname):
+        raise ValueError("Target URL cannot use internal hostnames.")
+    try:
+        address = ipaddress.ip_address(hostname)
+    except ValueError:
+        return parsed.geturl()
+    if (
+        address.is_private
+        or address.is_loopback
+        or address.is_link_local
+        or address.is_unspecified
+        or address.is_reserved
+    ):
+        raise ValueError("Target URL cannot use private or internal IP addresses.")
+    return parsed.geturl()
+
+
+def resolve_expiration(
+    *,
+    expire_at: datetime | None,
+    expire_after_days: int | None,
+    now: datetime,
+) -> datetime | None:
+    if expire_at is not None and expire_after_days is not None:
+        raise ValueError("Use expire_at or expire_after_days, not both.")
+    if expire_after_days is None:
+        return expire_at
+    if expire_after_days <= 0:
+        raise ValueError("expire_after_days must be greater than 0.")
+    return now + timedelta(days=expire_after_days)
+
+
+def _is_ip_address(hostname: str) -> bool:
+    try:
+        ipaddress.ip_address(hostname)
+    except ValueError:
+        return False
+    return True
 
 
 def normalize_country_code(country_code: str | None) -> str | None:
