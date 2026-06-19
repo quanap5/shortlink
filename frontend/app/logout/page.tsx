@@ -21,9 +21,12 @@ export default function LogoutPage() {
   }, []);
 
   return (
-    <section className="max-w-md rounded-lg border border-line bg-white p-6">
-      <h1 className="text-2xl font-semibold tracking-normal">Logout</h1>
-      <p className="mt-3 text-sm text-slate-600">{message}</p>
+    <section className="retro-card-white max-w-md p-6">
+      <p className="inline-flex border-2 border-ink bg-yellow px-2 py-1 text-xs font-black uppercase tracking-[0.14em]">
+        Auth station
+      </p>
+      <h1 className="mt-3 text-3xl font-black tracking-normal">Logout</h1>
+      <p className="mt-3 text-sm font-semibold text-ink/70">{message}</p>
     </section>
   );
 }

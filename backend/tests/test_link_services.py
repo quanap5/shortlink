@@ -1,6 +1,9 @@
+from datetime import UTC, datetime, timedelta
+
 import pytest
 
-from app.domain.errors import LinkAlreadyExistsError, LinkNotFoundError
+from app.api.routes import _float_header
+from app.domain.errors import LinkAlreadyExistsError, LinkInactiveError, LinkNotFoundError
 from app.repositories.memory import InMemoryClickEventRepository, InMemoryLinkRepository
 from app.services.links import ClickEventService, LinkCreationService, RedirectService
 
@@ -51,6 +54,7 @@ def test_create_link_generates_slug_when_missing() -> None:
     )
 
     assert len(link.slug) >= 6
+    assert link.slug == link.slug.lower()
     assert links.get("tenant-a", link.slug) == link
 
 
@@ -65,6 +69,84 @@ def test_generated_slug_retries_on_collision() -> None:
     assert link.slug == "def456"
 
 
+def test_create_link_normalizes_custom_slug_to_lowercase() -> None:
+    links = InMemoryLinkRepository()
+    service = LinkCreationService(links)
+
+    link = service.create_link(
+        tenant_id="tenant-a",
+        slug="Launch_2026",
+        target_url="https://example.com",
+    )
+
+    assert link.slug == "launch_2026"
+
+
+@pytest.mark.parametrize(
+    "target_url",
+    [
+        "javascript:alert(1)",
+        "data:text/html;base64,PGgxPkhlbGxvPC9oMT4=",
+        "file:///etc/passwd",
+        "http://localhost:3000",
+        "http://internal",
+        "http://app.internal/path",
+        "http://127.0.0.1:8000",
+        "http://0.0.0.0",
+        "http://10.0.0.5",
+        "http://172.16.1.1",
+        "http://192.168.1.2",
+        "http://169.254.169.254",
+    ],
+)
+def test_create_link_rejects_unsafe_target_urls(target_url: str) -> None:
+    service = LinkCreationService(InMemoryLinkRepository())
+
+    with pytest.raises(ValueError):
+        service.create_link(tenant_id="tenant-a", slug="safe-slug", target_url=target_url)
+
+
+@pytest.mark.parametrize("slug", ["ab", "bad.slug", "bad slug", "bad/slash"])
+def test_create_link_rejects_invalid_slugs(slug: str) -> None:
+    service = LinkCreationService(InMemoryLinkRepository())
+
+    with pytest.raises(ValueError):
+        service.create_link(tenant_id="tenant-a", slug=slug, target_url="https://example.com")
+
+
+def test_create_link_supports_expiration_status_and_redirect_type() -> None:
+    service = LinkCreationService(InMemoryLinkRepository())
+    expire_at = datetime(2026, 7, 1, tzinfo=UTC)
+
+    link = service.create_link(
+        tenant_id="tenant-a",
+        slug="launch",
+        target_url="https://example.com",
+        expire_at=expire_at,
+        status="disabled",
+        redirect_type=301,
+    )
+
+    assert link.expire_at == expire_at
+    assert link.status == "disabled"
+    assert link.redirect_type == 301
+
+
+def test_create_link_supports_expire_after_days() -> None:
+    service = LinkCreationService(InMemoryLinkRepository())
+    now = datetime(2026, 6, 20, tzinfo=UTC)
+
+    link = service.create_link(
+        tenant_id="tenant-a",
+        slug="launch",
+        target_url="https://example.com",
+        expire_after_days=10,
+        now=now,
+    )
+
+    assert link.expire_at == now + timedelta(days=10)
+
+
 def test_redirect_service_returns_target_link() -> None:
     links = InMemoryLinkRepository()
     create_service = LinkCreationService(links)
@@ -74,6 +156,30 @@ def test_redirect_service_returns_target_link() -> None:
     link = redirect_service.resolve(tenant_id="tenant-a", slug="docs")
 
     assert link.target_url == "https://example.com/docs"
+
+
+def test_redirect_service_rejects_disabled_and_expired_links() -> None:
+    links = InMemoryLinkRepository()
+    create_service = LinkCreationService(links)
+    redirect_service = RedirectService(links)
+    now = datetime(2026, 6, 20, tzinfo=UTC)
+    create_service.create_link(
+        tenant_id="tenant-a",
+        slug="off",
+        target_url="https://example.com/off",
+        status="disabled",
+    )
+    create_service.create_link(
+        tenant_id="tenant-a",
+        slug="old",
+        target_url="https://example.com/old",
+        expire_at=now - timedelta(days=1),
+    )
+
+    with pytest.raises(LinkInactiveError, match="disabled"):
+        redirect_service.resolve(tenant_id="tenant-a", slug="off", now=now)
+    with pytest.raises(LinkInactiveError, match="expired"):
+        redirect_service.resolve(tenant_id="tenant-a", slug="old", now=now)
 
 
 def test_redirect_service_raises_when_missing() -> None:
@@ -94,6 +200,11 @@ def test_click_event_service_records_event() -> None:
         user_agent="pytest",
         ip_address="127.0.0.1",
         country_code="kr",
+        country="South Korea",
+        region="Seoul",
+        city="Seoul",
+        latitude=37.5665,
+        longitude=126.978,
         referrer="https://google.com/search?q=shortlink",
         visitor_id="visitor-1",
     )
@@ -102,6 +213,11 @@ def test_click_event_service_records_event() -> None:
     assert event.tenant_id == "tenant-a"
     assert event.slug == "docs"
     assert event.country_code == "KR"
+    assert event.country == "South Korea"
+    assert event.region == "Seoul"
+    assert event.city == "Seoul"
+    assert event.latitude == 37.5665
+    assert event.longitude == 126.978
     assert event.ip_hash
     assert event.user_agent_hash
     assert event.visitor_hash
@@ -147,3 +263,23 @@ def test_click_event_service_is_fail_soft_when_publisher_fails() -> None:
 
     assert event.slug == "docs"
     assert event.ip_hash is not None
+
+
+class FakeRequest:
+    def __init__(self, headers: dict[str, str]) -> None:
+        self.headers = headers
+
+
+def test_float_header_parses_cloudfront_geo_headers() -> None:
+    request = FakeRequest(
+        {
+            "cloudfront-viewer-latitude": "37.5665",
+            "cloudfront-viewer-longitude": "126.978",
+            "bad-header": "not-a-number",
+        }
+    )
+
+    assert _float_header(request, "cloudfront-viewer-latitude") == 37.5665  # type: ignore[arg-type]
+    assert _float_header(request, "cloudfront-viewer-longitude") == 126.978  # type: ignore[arg-type]
+    assert _float_header(request, "bad-header") is None  # type: ignore[arg-type]
+    assert _float_header(request, "missing-header") is None  # type: ignore[arg-type]

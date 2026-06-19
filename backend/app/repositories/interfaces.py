@@ -6,6 +6,7 @@ from app.domain.models import (
     Link,
     LinkAnalyticsListItem,
     LinkAnalyticsSummary,
+    Tenant,
 )
 
 
@@ -20,6 +21,20 @@ class LinkRepository(ABC):
 
     @abstractmethod
     def list_by_tenant(self, tenant_id: str) -> list[Link]:
+        raise NotImplementedError
+
+
+class TenantRepository(ABC):
+    @abstractmethod
+    def create(self, tenant: Tenant) -> Tenant:
+        raise NotImplementedError
+
+    @abstractmethod
+    def get(self, tenant_id: str) -> Tenant | None:
+        raise NotImplementedError
+
+    @abstractmethod
+    def delete(self, tenant_id: str) -> None:
         raise NotImplementedError
 
 

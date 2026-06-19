@@ -10,6 +10,7 @@ import {
   type LinkResponse,
 } from "@/lib/api";
 import { loadAuthConfig, type AuthConfig } from "@/lib/auth";
+import { CopyButton } from "@/components/CopyButton";
 
 export default function LinkListPage() {
   const [links, setLinks] = useState<LinkResponse[]>([]);
@@ -44,66 +45,79 @@ export default function LinkListPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-normal">Links</h1>
-        <p className="mt-2 text-sm text-slate-600">Tenant-scoped short links for the MVP.</p>
+        <p className="inline-flex border-2 border-ink bg-yellow px-2 py-1 text-xs font-black uppercase tracking-[0.14em]">
+          Link cabinet
+        </p>
+        <h1 className="mt-3 text-3xl font-black tracking-normal">Links</h1>
+        <p className="mt-2 text-sm font-semibold text-ink/70">Tenant-scoped short links for the MVP.</p>
       </div>
       {error ? (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        <div className="retro-card-white bg-pink p-4 text-sm font-bold text-ink">
           {error}
           <Link className="ml-2 font-medium underline" href="/login">
             Login
           </Link>
         </div>
       ) : null}
-      <div className="overflow-hidden rounded-lg border border-line bg-white">
+      <div className="overflow-hidden border-4 border-ink bg-white shadow-retro">
         <table className="w-full text-left text-sm">
-          <thead className="bg-mist text-slate-600">
+          <thead className="bg-yellow text-ink">
             <tr>
-              <th className="px-4 py-3 font-medium">Slug</th>
-              <th className="px-4 py-3 font-medium">Target URL</th>
-              <th className="px-4 py-3 text-right font-medium">Clicks</th>
-              <th className="px-4 py-3 font-medium">Created</th>
+              <th className="border-b-4 border-ink px-4 py-3 font-black">Slug</th>
+              <th className="border-b-4 border-ink px-4 py-3 font-black">Target URL</th>
+              <th className="border-b-4 border-ink px-4 py-3 text-right font-black">Clicks</th>
+              <th className="border-b-4 border-ink px-4 py-3 font-black">Created</th>
             </tr>
           </thead>
           <tbody>
             {isLoading ? (
               <tr>
-                <td className="px-4 py-6 text-slate-600" colSpan={4}>
+                <td className="px-4 py-6 font-bold text-ink/70" colSpan={4}>
                   Loading links...
                 </td>
               </tr>
             ) : null}
             {!isLoading && !error && links.length === 0 ? (
               <tr>
-                <td className="px-4 py-6 text-slate-600" colSpan={4}>
+                <td className="px-4 py-6 font-bold text-ink/70" colSpan={4}>
                   No links yet.{" "}
-                  <Link className="font-medium text-teal underline" href="/links/create">
+                  <Link className="font-black text-ink underline" href="/links/create">
                     Create one
                   </Link>
                 </td>
               </tr>
             ) : null}
             {links.map((link) => (
-              <tr key={link.slug} className="border-t border-line">
-                <td className="px-4 py-3 font-medium">
-                  {authConfig ? (
-                    <a
-                      className="break-all text-teal underline"
-                      href={buildShortUrl(authConfig, link.slug)}
-                      rel="noreferrer"
-                      target="_blank"
-                    >
-                      /{link.slug}
-                    </a>
-                  ) : (
-                    `/${link.slug}`
-                  )}
+              <tr key={link.slug} className="border-t-2 border-ink">
+                <td className="px-4 py-3 font-black">
+                  <div className="flex min-w-48 flex-col gap-2 sm:flex-row sm:items-center">
+                    {authConfig ? (
+                      <>
+                        <a
+                          className="break-all text-ink underline"
+                          href={buildShortUrl(authConfig, link.slug)}
+                          rel="noreferrer"
+                          target="_blank"
+                        >
+                          /{link.slug}
+                        </a>
+                        <CopyButton
+                          label="Copy"
+                          value={buildShortUrl(authConfig, link.slug)}
+                        />
+                      </>
+                    ) : (
+                      `/${link.slug}`
+                    )}
+                  </div>
                 </td>
-                <td className="max-w-sm break-all px-4 py-3 text-slate-600">{link.target_url}</td>
-                <td className="px-4 py-3 text-right font-medium">
+                <td className="max-w-sm break-all px-4 py-3 font-semibold text-ink/70">
+                  {link.target_url}
+                </td>
+                <td className="px-4 py-3 text-right font-black">
                   {analytics[link.slug]?.total_hits ?? 0}
                 </td>
-                <td className="px-4 py-3 text-slate-600">
+                <td className="px-4 py-3 font-semibold text-ink/70">
                   {new Intl.DateTimeFormat(undefined, {
                     dateStyle: "medium",
                     timeStyle: "short",

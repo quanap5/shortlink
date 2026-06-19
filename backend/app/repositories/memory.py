@@ -1,18 +1,21 @@
 from collections import Counter
 from collections.abc import Iterable
 
+from app.domain.errors import TenantAlreadyExistsError
 from app.domain.models import (
     AnalyticsAggregate,
     ClickEvent,
     Link,
     LinkAnalyticsListItem,
     LinkAnalyticsSummary,
+    Tenant,
 )
 from app.repositories.interfaces import (
     AnalyticsAggregateRepository,
     ClickEventPublisher,
     ClickEventRepository,
     LinkRepository,
+    TenantRepository,
 )
 
 
@@ -29,6 +32,23 @@ class InMemoryLinkRepository(LinkRepository):
 
     def list_by_tenant(self, tenant_id: str) -> list[Link]:
         return [link for link in self._links.values() if link.tenant_id == tenant_id]
+
+
+class InMemoryTenantRepository(TenantRepository):
+    def __init__(self) -> None:
+        self._tenants: dict[str, Tenant] = {}
+
+    def create(self, tenant: Tenant) -> Tenant:
+        if tenant.tenant_id in self._tenants:
+            raise TenantAlreadyExistsError(tenant.tenant_id)
+        self._tenants[tenant.tenant_id] = tenant
+        return tenant
+
+    def get(self, tenant_id: str) -> Tenant | None:
+        return self._tenants.get(tenant_id)
+
+    def delete(self, tenant_id: str) -> None:
+        self._tenants.pop(tenant_id, None)
 
 
 class InMemoryClickEventRepository(ClickEventPublisher, ClickEventRepository):

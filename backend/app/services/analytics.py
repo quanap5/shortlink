@@ -112,7 +112,7 @@ class AnalyticsQueryService:
                 raise ValueError("start_date must be before or equal to end_date.")
             return AnalyticsDateRange(start_date=start_date, end_date=end_date)
 
-        days_by_range = {"7d": 7, "30d": 30, "90d": 90}
+        days_by_range = {"7d": 7, "30d": 30, "90d": 90, "365d": 365}
         days = days_by_range.get(range_name)
         if days is None:
             raise ValueError("Unsupported analytics range.")

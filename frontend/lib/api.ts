@@ -3,7 +3,10 @@ import { clearTokens, loadAuthConfig, readAccessToken, type AuthConfig } from "@
 export type LinkResponse = {
   created_at: string;
   created_by: string | null;
+  expire_at: string | null;
+  redirect_type: 301 | 302 | 307;
   slug: string;
+  status: "active" | "disabled" | "expired";
   target_url: string;
   tenant_id: string;
 };
@@ -13,8 +16,25 @@ export type LinksResponse = {
 };
 
 export type CreateLinkInput = {
+  expire_after_days?: number;
+  expire_at?: string;
+  redirect_type?: 301 | 302 | 307;
   slug?: string;
+  status?: "active" | "disabled" | "expired";
   target_url: string;
+};
+
+export type RegisterTenantInput = {
+  owner_email: string;
+  password: string;
+  tenant_name: string;
+};
+
+export type RegisterTenantResponse = {
+  name: string;
+  owner_email: string;
+  status: "pending_verification" | "active" | "failed";
+  tenant_id: string;
 };
 
 export type ClickEventResponse = {
@@ -47,7 +67,7 @@ export type AnalyticsLinksResponse = {
   links: AnalyticsLinkSummary[];
 };
 
-export type AnalyticsRange = "7d" | "30d" | "90d";
+export type AnalyticsRange = "7d" | "30d" | "90d" | "365d";
 
 export type AnalyticsSummary = {
   active_links: number;
@@ -137,6 +157,25 @@ export async function createLink(input: CreateLinkInput): Promise<LinkResponse> 
     body: JSON.stringify(input),
     method: "POST",
   });
+}
+
+export async function registerTenant(
+  input: RegisterTenantInput,
+): Promise<RegisterTenantResponse> {
+  const config = await loadAuthConfig();
+  const response = await fetch(`${config.apiBaseUrl}/tenants/register`, {
+    body: JSON.stringify(input),
+    headers: {
+      "Content-Type": "application/json",
+    },
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    throw new ApiError(await readErrorMessage(response), response.status);
+  }
+
+  return response.json() as Promise<RegisterTenantResponse>;
 }
 
 export async function listLinks(): Promise<LinkResponse[]> {

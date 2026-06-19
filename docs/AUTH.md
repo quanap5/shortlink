@@ -51,10 +51,20 @@ The CloudFront URL is no longer the primary browser URL after the custom domain 
 
 Backend tenant resolution checks `custom:tenant_id` from Cognito JWT claims.
 
-If the claim is absent, it falls back to:
+Public redirect and local development paths may still use:
 
 ```text
 default-tenant
 ```
 
-This preserves the current single-tenant MVP redirect behavior. A later multi-tenant phase should add a required tenant claim and update redirect routing accordingly.
+Protected API requests require the claim. If an authenticated protected request is missing `custom:tenant_id`, the API returns `403`.
+
+## Public Tenant Registration
+
+New tenants register at `/register`.
+
+The browser calls `POST /tenants/register`; it does not write Cognito custom tenant attributes directly. Backend registration creates the tenant record, then signs up the owner through a server-only Cognito app client with `custom:tenant_id` and `custom:role=owner`.
+
+After registration, Cognito sends the verification email. The user verifies email and signs in through the existing Hosted UI login page.
+
+Protected APIs require `custom:tenant_id` in the JWT. Authenticated requests without this claim return `403`.

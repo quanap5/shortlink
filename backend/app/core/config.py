@@ -10,9 +10,12 @@ class Settings(BaseSettings):
     app_name: str = "ShortLink API"
     environment: str = "local"
     links_table_name: str | None = Field(default=None)
+    tenants_table_name: str | None = Field(default=None)
     click_events_table_name: str | None = Field(default=None)
     analytics_aggregates_table_name: str | None = Field(default=None)
     click_events_queue_url: str | None = Field(default=None)
+    cognito_registration_client_id: str | None = Field(default=None)
+    cognito_registration_client_secret: str | None = Field(default=None)
 
 
 @lru_cache
