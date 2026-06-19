@@ -2,11 +2,18 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { buildShortUrl, listLinks, type LinkResponse } from "@/lib/api";
+import {
+  buildShortUrl,
+  listAnalyticsLinks,
+  listLinks,
+  type AnalyticsLinkSummary,
+  type LinkResponse,
+} from "@/lib/api";
 import { loadAuthConfig, type AuthConfig } from "@/lib/auth";
 
 export default function LinkListPage() {
   const [links, setLinks] = useState<LinkResponse[]>([]);
+  const [analytics, setAnalytics] = useState<Record<string, AnalyticsLinkSummary>>({});
   const [authConfig, setAuthConfig] = useState<AuthConfig | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -16,9 +23,14 @@ export default function LinkListPage() {
       setIsLoading(true);
       setError(null);
       try {
-        const [config, loadedLinks] = await Promise.all([loadAuthConfig(), listLinks()]);
+        const [config, loadedLinks, loadedAnalytics] = await Promise.all([
+          loadAuthConfig(),
+          listLinks(),
+          listAnalyticsLinks(),
+        ]);
         setAuthConfig(config);
         setLinks(loadedLinks);
+        setAnalytics(Object.fromEntries(loadedAnalytics.map((item) => [item.slug, item])));
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : "Unable to load links.");
       } finally {
@@ -49,20 +61,21 @@ export default function LinkListPage() {
             <tr>
               <th className="px-4 py-3 font-medium">Slug</th>
               <th className="px-4 py-3 font-medium">Target URL</th>
+              <th className="px-4 py-3 text-right font-medium">Clicks</th>
               <th className="px-4 py-3 font-medium">Created</th>
             </tr>
           </thead>
           <tbody>
             {isLoading ? (
               <tr>
-                <td className="px-4 py-6 text-slate-600" colSpan={3}>
+                <td className="px-4 py-6 text-slate-600" colSpan={4}>
                   Loading links...
                 </td>
               </tr>
             ) : null}
             {!isLoading && !error && links.length === 0 ? (
               <tr>
-                <td className="px-4 py-6 text-slate-600" colSpan={3}>
+                <td className="px-4 py-6 text-slate-600" colSpan={4}>
                   No links yet.{" "}
                   <Link className="font-medium text-teal underline" href="/links/create">
                     Create one
@@ -87,6 +100,9 @@ export default function LinkListPage() {
                   )}
                 </td>
                 <td className="max-w-sm break-all px-4 py-3 text-slate-600">{link.target_url}</td>
+                <td className="px-4 py-3 text-right font-medium">
+                  {analytics[link.slug]?.total_hits ?? 0}
+                </td>
                 <td className="px-4 py-3 text-slate-600">
                   {new Intl.DateTimeFormat(undefined, {
                     dateStyle: "medium",

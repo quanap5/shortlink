@@ -20,8 +20,12 @@ def test_sqs_click_event_publisher_sends_tenant_scoped_event() -> None:
         slug="docs",
         target_url="https://example.com/docs",
         occurred_at=utc_now(),
-        user_agent="pytest",
-        ip_address="127.0.0.1",
+        visitor_hash="visitor-hash",
+        ip_hash="ip-hash",
+        user_agent_hash="ua-hash",
+        country_code="KR",
+        referrer="direct",
+        os_family="windows",
     )
 
     published = publisher.publish(event)
@@ -31,3 +35,8 @@ def test_sqs_click_event_publisher_sends_tenant_scoped_event() -> None:
     body = json.loads(client.messages[0]["MessageBody"])
     assert body["tenant_id"] == "tenant-a"
     assert body["slug"] == "docs"
+    assert body["visitor_hash"] == "visitor-hash"
+    assert body["ip_hash"] == "ip-hash"
+    assert body["user_agent_hash"] == "ua-hash"
+    assert "ip_address" not in body
+    assert "user_agent" not in body

@@ -1,12 +1,25 @@
+from collections import Counter
 from datetime import datetime
 from typing import Any
 
 import boto3
+from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 
 from app.domain.errors import LinkAlreadyExistsError
-from app.domain.models import ClickEvent, Link
-from app.repositories.interfaces import ClickEventPublisher, ClickEventRepository, LinkRepository
+from app.domain.models import (
+    AnalyticsAggregate,
+    ClickEvent,
+    Link,
+    LinkAnalyticsListItem,
+    LinkAnalyticsSummary,
+)
+from app.repositories.interfaces import (
+    AnalyticsAggregateRepository,
+    ClickEventPublisher,
+    ClickEventRepository,
+    LinkRepository,
+)
 
 
 class DynamoDBLinkRepository(LinkRepository):
@@ -77,11 +90,144 @@ class DynamoDBClickEventRepository(ClickEventPublisher, ClickEventRepository):
                 "slug": event.slug,
                 "target_url": event.target_url,
                 "occurred_at": event.occurred_at.isoformat(),
-                "user_agent": event.user_agent,
-                "ip_address": event.ip_address,
+                "visitor_hash": event.visitor_hash,
+                "ip_hash": event.ip_hash,
+                "user_agent_hash": event.user_agent_hash,
+                "country_code": event.country_code,
+                "country": event.country,
+                "region": event.region,
+                "city": event.city,
+                "latitude": event.latitude,
+                "longitude": event.longitude,
+                "referrer": event.referrer,
+                "device_family": event.device_family,
+                "browser_family": event.browser_family,
+                "os_family": event.os_family,
             }
         )
         return event
 
     def publish(self, event: ClickEvent) -> ClickEvent:
         return self.record(event)
+
+    def list_by_link(self, tenant_id: str, slug: str, limit: int = 50) -> list[ClickEvent]:
+        response = self._table.query(
+            KeyConditionExpression=Key("tenant_id").eq(tenant_id)
+            & Key("slug_occurred_at").begins_with(f"{slug}#"),
+            ScanIndexForward=False,
+            Limit=limit,
+        )
+        return [_click_event_from_item(item) for item in response.get("Items", [])]
+
+    def list_by_tenant(self, tenant_id: str, limit: int = 500) -> list[ClickEvent]:
+        response = self._table.query(
+            KeyConditionExpression=Key("tenant_id").eq(tenant_id),
+            ScanIndexForward=False,
+            Limit=limit,
+        )
+        return [_click_event_from_item(item) for item in response.get("Items", [])]
+
+    def get_link_summary(self, tenant_id: str, slug: str) -> LinkAnalyticsSummary:
+        events = self.list_by_link(tenant_id, slug, limit=500)
+        return LinkAnalyticsSummary(
+            tenant_id=tenant_id,
+            slug=slug,
+            total_hits=len(events),
+            by_country=_count_values(event.country_code or "unknown" for event in events),
+            by_device=_count_values(event.device_family for event in events),
+            by_browser=_count_values(event.browser_family for event in events),
+            recent_events=events[:20],
+        )
+
+    def list_link_summaries(self, tenant_id: str) -> list[LinkAnalyticsListItem]:
+        events = self.list_by_tenant(tenant_id, limit=1000)
+        slugs = sorted({event.slug for event in events})
+        summaries: list[LinkAnalyticsListItem] = []
+        for slug in slugs:
+            link_events = [event for event in events if event.slug == slug]
+            summaries.append(
+                LinkAnalyticsListItem(
+                    slug=slug,
+                    total_hits=len(link_events),
+                    by_country=_count_values(
+                        event.country_code or "unknown" for event in link_events
+                    ),
+                    by_device=_count_values(event.device_family for event in link_events),
+                    by_browser=_count_values(event.browser_family for event in link_events),
+                )
+            )
+        return sorted(summaries, key=lambda item: item.total_hits, reverse=True)
+
+
+def _click_event_from_item(item: dict[str, Any]) -> ClickEvent:
+    return ClickEvent(
+        tenant_id=item["tenant_id"],
+        slug=item["slug"],
+        target_url=item["target_url"],
+        occurred_at=datetime.fromisoformat(item["occurred_at"]),
+        visitor_hash=item.get("visitor_hash"),
+        ip_hash=item.get("ip_hash"),
+        user_agent_hash=item.get("user_agent_hash"),
+        country_code=item.get("country_code"),
+        country=item.get("country"),
+        region=item.get("region"),
+        city=item.get("city"),
+        latitude=_float_or_none(item.get("latitude")),
+        longitude=_float_or_none(item.get("longitude")),
+        referrer=item.get("referrer", "direct"),
+        device_family=item.get("device_family", "unknown"),
+        browser_family=item.get("browser_family", "unknown"),
+        os_family=item.get("os_family", "unknown"),
+    )
+
+
+def _count_values(values: Any) -> dict[str, int]:
+    return dict(Counter(values))
+
+
+class DynamoDBAnalyticsAggregateRepository(AnalyticsAggregateRepository):
+    def __init__(self, table_name: str, dynamodb_resource: Any | None = None) -> None:
+        resource = dynamodb_resource or boto3.resource("dynamodb")
+        self._table = resource.Table(table_name)
+
+    def increment(
+        self,
+        *,
+        tenant_id: str,
+        metric_key: str,
+        amount: int = 1,
+        labels: dict[str, str] | None = None,
+    ) -> AnalyticsAggregate:
+        update_expression = "SET labels = :labels ADD clicks :amount"
+        response = self._table.update_item(
+            Key={"tenant_id": tenant_id, "metric_key": metric_key},
+            UpdateExpression=update_expression,
+            ExpressionAttributeValues={
+                ":amount": amount,
+                ":labels": labels or {},
+            },
+            ReturnValues="ALL_NEW",
+        )
+        return _aggregate_from_item(response["Attributes"])
+
+    def query_by_prefix(self, *, tenant_id: str, prefix: str) -> list[AnalyticsAggregate]:
+        response = self._table.query(
+            KeyConditionExpression=Key("tenant_id").eq(tenant_id)
+            & Key("metric_key").begins_with(prefix),
+        )
+        return [_aggregate_from_item(item) for item in response.get("Items", [])]
+
+
+def _aggregate_from_item(item: dict[str, Any]) -> AnalyticsAggregate:
+    return AnalyticsAggregate(
+        tenant_id=item["tenant_id"],
+        metric_key=item["metric_key"],
+        clicks=int(item.get("clicks", 0)),
+        labels={str(key): str(value) for key, value in item.get("labels", {}).items()},
+    )
+
+
+def _float_or_none(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    return float(value)

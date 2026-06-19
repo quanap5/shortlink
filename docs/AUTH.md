@@ -28,6 +28,15 @@ It includes:
 - Redirect URI
 - Logout URI
 
+For the custom frontend domain, Cognito callback and logout URLs are:
+
+```text
+https://link.twinqx.com/auth/callback
+https://link.twinqx.com
+```
+
+The CloudFront URL is no longer the primary browser URL after the custom domain deploy succeeds.
+
 ## Create A Test User
 
 1. Open AWS Console.

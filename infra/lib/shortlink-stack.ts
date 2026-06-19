@@ -3,11 +3,13 @@ import { Duration, RemovalPolicy } from "aws-cdk-lib";
 import * as apigatewayv2 from "aws-cdk-lib/aws-apigatewayv2";
 import * as authorizers from "aws-cdk-lib/aws-apigatewayv2-authorizers";
 import * as integrations from "aws-cdk-lib/aws-apigatewayv2-integrations";
+import * as acm from "aws-cdk-lib/aws-certificatemanager";
 import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
 import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
 import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as lambda from "aws-cdk-lib/aws-lambda";
+import * as eventSources from "aws-cdk-lib/aws-lambda-event-sources";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as s3deploy from "aws-cdk-lib/aws-s3-deployment";
 import * as sqs from "aws-cdk-lib/aws-sqs";
@@ -38,6 +40,13 @@ export class ShortLinkStack extends cdk.Stack {
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
+    const analyticsAggregatesTable = new dynamodb.Table(this, "AnalyticsAggregatesTable", {
+      partitionKey: { name: "tenant_id", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "metric_key", type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: RemovalPolicy.DESTROY,
+    });
+
     const clickEventsQueue = new sqs.Queue(this, "ClickEventsQueue", {
       visibilityTimeout: Duration.seconds(30),
     });
@@ -50,6 +59,18 @@ export class ShortLinkStack extends cdk.Stack {
 
     const frontendUrl =
       this.node.tryGetContext("frontendUrl") ?? "https://djg0fa4zryeod.cloudfront.net";
+    const frontendDomainName = this.node.tryGetContext("frontendDomainName") as string | undefined;
+    const frontendCertificateArn = this.node.tryGetContext("frontendCertificateArn") as
+      | string
+      | undefined;
+    const frontendCertificate =
+      frontendCertificateArn && frontendDomainName
+        ? acm.Certificate.fromCertificateArn(
+            this,
+            "FrontendCertificate",
+            frontendCertificateArn,
+          )
+        : undefined;
     const callbackUrl = `${frontendUrl}/auth/callback`;
     const logoutUrl = frontendUrl;
 
@@ -77,10 +98,7 @@ export class ShortLinkStack extends cdk.Stack {
       },
     });
 
-    const backendFunction = new lambda.Function(this, "BackendFunction", {
-      runtime: lambda.Runtime.PYTHON_3_13,
-      handler: "app.main.handler",
-      code: lambda.Code.fromAsset("../backend", {
+    const backendCode = lambda.Code.fromAsset("../backend", {
         exclude: [
           ".venv",
           ".pytest_cache",
@@ -100,21 +118,47 @@ export class ShortLinkStack extends cdk.Stack {
             ].join(" && "),
           ],
         },
-      }),
+      });
+
+    const backendEnvironment = {
+      SHORTLINK_LINKS_TABLE_NAME: linksTable.tableName,
+      SHORTLINK_CLICK_EVENTS_TABLE_NAME: clickEventsTable.tableName,
+      SHORTLINK_ANALYTICS_AGGREGATES_TABLE_NAME: analyticsAggregatesTable.tableName,
+      SHORTLINK_CLICK_EVENTS_QUEUE_URL: clickEventsQueue.queueUrl,
+      SHORTLINK_USER_POOL_ID: userPool.userPoolId,
+      SHORTLINK_USER_POOL_CLIENT_ID: userPoolClient.userPoolClientId,
+    };
+
+    const backendFunction = new lambda.Function(this, "BackendFunction", {
+      runtime: lambda.Runtime.PYTHON_3_13,
+      handler: "app.main.handler",
+      code: backendCode,
       timeout: Duration.seconds(10),
       memorySize: 512,
-      environment: {
-        SHORTLINK_LINKS_TABLE_NAME: linksTable.tableName,
-        SHORTLINK_CLICK_EVENTS_TABLE_NAME: clickEventsTable.tableName,
-        SHORTLINK_CLICK_EVENTS_QUEUE_URL: clickEventsQueue.queueUrl,
-        SHORTLINK_USER_POOL_ID: userPool.userPoolId,
-        SHORTLINK_USER_POOL_CLIENT_ID: userPoolClient.userPoolClientId,
-      },
+      environment: backendEnvironment,
+    });
+
+    const clickEventConsumerFunction = new lambda.Function(this, "ClickEventConsumerFunction", {
+      runtime: lambda.Runtime.PYTHON_3_13,
+      handler: "app.handlers.click_events.handler",
+      code: backendCode,
+      timeout: Duration.seconds(30),
+      memorySize: 512,
+      environment: backendEnvironment,
     });
 
     linksTable.grantReadWriteData(backendFunction);
     clickEventsTable.grantReadWriteData(backendFunction);
+    analyticsAggregatesTable.grantReadWriteData(backendFunction);
     clickEventsQueue.grantSendMessages(backendFunction);
+    clickEventsTable.grantReadWriteData(clickEventConsumerFunction);
+    analyticsAggregatesTable.grantReadWriteData(clickEventConsumerFunction);
+    clickEventsQueue.grantConsumeMessages(clickEventConsumerFunction);
+    clickEventConsumerFunction.addEventSource(
+      new eventSources.SqsEventSource(clickEventsQueue, {
+        batchSize: 10,
+      }),
+    );
 
     const backendIntegration = new integrations.HttpLambdaIntegration(
       "BackendIntegration",
@@ -152,6 +196,32 @@ export class ShortLinkStack extends cdk.Stack {
       authorizer: jwtAuthorizer,
     });
     api.addRoutes({
+      path: "/analytics/links",
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: backendIntegration,
+      authorizer: jwtAuthorizer,
+    });
+    for (const path of [
+      "/analytics/summary",
+      "/analytics/timeseries",
+      "/analytics/breakdowns/{dimension}",
+      "/analytics/top-links",
+      "/analytics/map",
+    ]) {
+      api.addRoutes({
+        path,
+        methods: [apigatewayv2.HttpMethod.GET],
+        integration: backendIntegration,
+        authorizer: jwtAuthorizer,
+      });
+    }
+    api.addRoutes({
+      path: "/links/{slug}/analytics",
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: backendIntegration,
+      authorizer: jwtAuthorizer,
+    });
+    api.addRoutes({
       path: "/{slug}",
       methods: [apigatewayv2.HttpMethod.GET],
       integration: backendIntegration,
@@ -172,25 +242,47 @@ function handler(event) {
 `),
     });
 
-    const distribution = new cloudfront.Distribution(this, "FrontendDistribution", {
-      defaultBehavior: {
-        origin: origins.S3BucketOrigin.withOriginAccessControl(frontendBucket),
-        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-        functionAssociations: [
-          {
-            eventType: cloudfront.FunctionEventType.VIEWER_REQUEST,
-            function: frontendRewriteFunction,
-          },
-        ],
-      },
-      additionalBehaviors: {
-        "api/*": {
-          origin: new origins.HttpOrigin(`${api.apiId}.execute-api.${this.region}.amazonaws.com`),
-          viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-          allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
-          cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
-          originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+    const frontendOrigin = origins.S3BucketOrigin.withOriginAccessControl(frontendBucket);
+    const apiOrigin = new origins.HttpOrigin(`${api.apiId}.execute-api.${this.region}.amazonaws.com`);
+    const frontendBehavior = {
+      origin: frontendOrigin,
+      viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+      functionAssociations: [
+        {
+          eventType: cloudfront.FunctionEventType.VIEWER_REQUEST,
+          function: frontendRewriteFunction,
         },
+      ],
+    };
+    const apiBehavior = {
+      origin: apiOrigin,
+      viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+      allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
+      cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
+      originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+    };
+
+    const distribution = new cloudfront.Distribution(this, "FrontendDistribution", {
+      ...(frontendCertificate && frontendDomainName
+        ? {
+            certificate: frontendCertificate,
+            domainNames: [frontendDomainName],
+          }
+        : {}),
+      defaultBehavior: apiBehavior,
+      additionalBehaviors: {
+        "/": frontendBehavior,
+        "_next/*": frontendBehavior,
+        "analytics": frontendBehavior,
+        "auth/*": frontendBehavior,
+        "auth-config.json": frontendBehavior,
+        "dashboard/*": frontendBehavior,
+        "favicon.ico": frontendBehavior,
+        "index.html": frontendBehavior,
+        "links": frontendBehavior,
+        "links/*": frontendBehavior,
+        "login": frontendBehavior,
+        "logout": frontendBehavior,
       },
       defaultRootObject: "index.html",
     });
@@ -203,6 +295,7 @@ function handler(event) {
           clientId: userPoolClient.userPoolClientId,
           cognitoDomain: `https://${userPoolDomain.domainName}.auth.${this.region}.amazoncognito.com`,
           logoutUri: logoutUrl,
+          redirectBaseUrl: frontendUrl,
           redirectUri: callbackUrl,
           region: this.region,
           userPoolId: userPool.userPoolId,
@@ -215,6 +308,11 @@ function handler(event) {
     new cdk.CfnOutput(this, "CloudFrontDomainName", {
       value: distribution.distributionDomainName,
     });
+    if (frontendDomainName) {
+      new cdk.CfnOutput(this, "FrontendCustomDomainName", {
+        value: frontendDomainName,
+      });
+    }
     new cdk.CfnOutput(this, "HttpApiEndpoint", { value: api.apiEndpoint });
     new cdk.CfnOutput(this, "UserPoolId", { value: userPool.userPoolId });
     new cdk.CfnOutput(this, "UserPoolClientId", { value: userPoolClient.userPoolClientId });

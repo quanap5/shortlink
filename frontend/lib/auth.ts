@@ -3,6 +3,7 @@ export type AuthConfig = {
   clientId: string;
   cognitoDomain: string;
   logoutUri: string;
+  redirectBaseUrl?: string;
   redirectUri: string;
   region: string;
   userPoolId: string;

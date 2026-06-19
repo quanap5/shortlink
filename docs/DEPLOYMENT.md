@@ -58,6 +58,28 @@ After deploy, save these outputs:
 
 Use `docs/CLOUDFLARE_DNS.md` to create CNAME records in Cloudflare. Do not create Route53 hosted zones or Route53 DNS records.
 
+## Custom Frontend Domain
+
+The stack is configured for:
+
+```text
+https://link.twinqx.com
+```
+
+Before deploying this custom domain, the ACM certificate in `us-east-1` must be `Issued`.
+
+Check status:
+
+```bash
+aws acm describe-certificate \
+  --region us-east-1 \
+  --certificate-arn arn:aws:acm:us-east-1:373249432962:certificate/fe7b83cf-bfec-40de-960e-f89bc1876860 \
+  --query Certificate.Status \
+  --output text
+```
+
+If the status is `PENDING_VALIDATION`, add the validation CNAME from `docs/CLOUDFLARE_DNS.md` to Cloudflare first.
+
 ## Smoke Checks
 
 After deployment:
@@ -77,6 +99,6 @@ Then create a link through the API and verify the item appears in DynamoDB.
 ## Known MVP Gaps
 
 - Cognito Hosted UI is used for login. See `docs/AUTH.md`.
-- Click events are published to SQS, but the SQS consumer Lambda is not implemented yet.
-- Frontend uses placeholder dashboard data and only auth is wired to Cognito.
-- Custom domains and ACM certificates are intentionally out of scope for this phase.
+- Click events are published to SQS and consumed by the click event consumer Lambda.
+- Frontend uses a placeholder dashboard; link creation, link list, login, and analytics are wired to live APIs.
+- Root-level short redirects use `https://link.twinqx.com/<slug>` through CloudFront default routing to API Gateway.

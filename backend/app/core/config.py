@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     environment: str = "local"
     links_table_name: str | None = Field(default=None)
     click_events_table_name: str | None = Field(default=None)
+    analytics_aggregates_table_name: str | None = Field(default=None)
     click_events_queue_url: str | None = Field(default=None)
 
 

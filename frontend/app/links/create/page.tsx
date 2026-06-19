@@ -21,7 +21,7 @@ export default function CreateLinkPage() {
 
     const normalizedSlug = slug.trim().replace(/^\/+/, "");
     const normalizedTargetUrl = targetUrl.trim();
-    if (normalizedSlug.length < 3) {
+    if (normalizedSlug && normalizedSlug.length < 3) {
       setError("Slug must be at least 3 characters.");
       return;
     }
@@ -36,7 +36,10 @@ export default function CreateLinkPage() {
     try {
       const [config, link] = await Promise.all([
         loadAuthConfig(),
-        createLink({ slug: normalizedSlug, target_url: normalizedTargetUrl }),
+        createLink({
+          ...(normalizedSlug ? { slug: normalizedSlug } : {}),
+          target_url: normalizedTargetUrl,
+        }),
       ]);
       setSlug(link.slug);
       setTargetUrl(link.target_url);
@@ -57,7 +60,7 @@ export default function CreateLinkPage() {
           <span className="text-sm font-medium text-slate-700">Slug</span>
           <input
             className="mt-1 w-full rounded-md border border-line px-3 py-2"
-            placeholder="launch"
+            placeholder="optional, e.g. launch"
             name="slug"
             onChange={(event) => setSlug(event.target.value)}
             value={slug}

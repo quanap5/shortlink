@@ -13,8 +13,70 @@ export type LinksResponse = {
 };
 
 export type CreateLinkInput = {
+  slug?: string;
+  target_url: string;
+};
+
+export type ClickEventResponse = {
+  browser_family: string;
+  country_code: string | null;
+  device_family: string;
+  occurred_at: string;
   slug: string;
   target_url: string;
+};
+
+export type LinkAnalyticsResponse = {
+  by_browser: Record<string, number>;
+  by_country: Record<string, number>;
+  by_device: Record<string, number>;
+  recent_events: ClickEventResponse[];
+  slug: string;
+  total_hits: number;
+};
+
+export type AnalyticsLinkSummary = {
+  by_browser: Record<string, number>;
+  by_country: Record<string, number>;
+  by_device: Record<string, number>;
+  slug: string;
+  total_hits: number;
+};
+
+export type AnalyticsLinksResponse = {
+  links: AnalyticsLinkSummary[];
+};
+
+export type AnalyticsRange = "7d" | "30d" | "90d";
+
+export type AnalyticsSummary = {
+  active_links: number;
+  click_growth_percent: number;
+  top_link: string | null;
+  top_link_clicks: number;
+  total_clicks: number;
+  total_links: number;
+  unique_visitors: number;
+};
+
+export type AnalyticsPoint = {
+  clicks: number;
+  label: string;
+};
+
+export type AnalyticsBreakdownItem = {
+  clicks: number;
+  key: string;
+  label: string;
+  metadata: Record<string, string>;
+};
+
+export type AnalyticsTimeseriesResponse = {
+  points: AnalyticsPoint[];
+};
+
+export type AnalyticsBreakdownResponse = {
+  items: AnalyticsBreakdownItem[];
 };
 
 export class ApiError extends Error {
@@ -82,6 +144,53 @@ export async function listLinks(): Promise<LinkResponse[]> {
   return response.links;
 }
 
+export async function listAnalyticsLinks(): Promise<AnalyticsLinkSummary[]> {
+  const response = await apiFetch<AnalyticsLinksResponse>("/analytics/links");
+  return response.links;
+}
+
+export async function getLinkAnalytics(slug: string): Promise<LinkAnalyticsResponse> {
+  return apiFetch<LinkAnalyticsResponse>(`/links/${encodeURIComponent(slug)}/analytics`);
+}
+
+export async function getAnalyticsSummary(range: AnalyticsRange): Promise<AnalyticsSummary> {
+  return apiFetch<AnalyticsSummary>(`/analytics/summary?range=${range}`);
+}
+
+export async function getAnalyticsTimeseries(range: AnalyticsRange): Promise<AnalyticsPoint[]> {
+  const response = await apiFetch<AnalyticsTimeseriesResponse>(
+    `/analytics/timeseries?range=${range}`,
+  );
+  return response.points;
+}
+
+export async function getAnalyticsBreakdown(
+  dimension: "country" | "city" | "device" | "browser" | "os" | "referrer",
+  range: AnalyticsRange,
+  limit = 10,
+): Promise<AnalyticsBreakdownItem[]> {
+  const response = await apiFetch<AnalyticsBreakdownResponse>(
+    `/analytics/breakdowns/${dimension}?range=${range}&limit=${limit}`,
+  );
+  return response.items;
+}
+
+export async function getAnalyticsTopLinks(
+  range: AnalyticsRange,
+  limit = 10,
+): Promise<AnalyticsBreakdownItem[]> {
+  const response = await apiFetch<AnalyticsBreakdownResponse>(
+    `/analytics/top-links?range=${range}&limit=${limit}`,
+  );
+  return response.items;
+}
+
+export async function getAnalyticsMap(range: AnalyticsRange): Promise<AnalyticsBreakdownItem[]> {
+  const response = await apiFetch<AnalyticsBreakdownResponse>(`/analytics/map?range=${range}`);
+  return response.items;
+}
+
 export function buildShortUrl(config: AuthConfig, slug: string): string {
-  return `${config.apiBaseUrl.replace(/\/$/, "")}/${encodeURIComponent(slug)}`;
+  const baseUrl = config.redirectBaseUrl ?? config.apiBaseUrl;
+  return `${baseUrl.replace(/\/$/, "")}/${encodeURIComponent(slug)}`;
 }

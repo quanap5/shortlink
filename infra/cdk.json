@@ -1,7 +1,9 @@
 {
   "app": "npx ts-node --prefer-ts-exts bin/shortlink-infra.ts",
   "context": {
-    "frontendUrl": "https://djg0fa4zryeod.cloudfront.net",
+    "frontendUrl": "https://link.twinqx.com",
+    "frontendDomainName": "link.twinqx.com",
+    "frontendCertificateArn": "arn:aws:acm:us-east-1:373249432962:certificate/fe7b83cf-bfec-40de-960e-f89bc1876860",
     "@aws-cdk/aws-lambda:recognizeLayerVersion": true
   }
 }

@@ -4,7 +4,7 @@ from pydantic import AnyUrl, BaseModel, ConfigDict, Field
 
 
 class CreateLinkRequest(BaseModel):
-    slug: str = Field(min_length=3, max_length=64)
+    slug: str | None = Field(default=None, min_length=3, max_length=64)
     target_url: AnyUrl
 
 
