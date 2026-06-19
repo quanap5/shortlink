@@ -1,0 +1,575 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ShortLink SaaS MVP Architecture</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f7f9fb;
+        --panel: #ffffff;
+        --text: #17202a;
+        --muted: #576574;
+        --border: #d9e2ec;
+        --accent: #167a7f;
+        --accent-soft: #e5f4f3;
+        --code: #eef4f8;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+        line-height: 1.55;
+      }
+
+      header {
+        background: linear-gradient(135deg, #167a7f 0%, #17202a 100%);
+        color: #ffffff;
+        padding: 48px 24px;
+      }
+
+      main {
+        width: min(1180px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 28px 0 56px;
+      }
+
+      h1,
+      h2,
+      h3 {
+        line-height: 1.15;
+        margin: 0;
+      }
+
+      h1 {
+        font-size: clamp(2rem, 5vw, 4rem);
+        letter-spacing: 0;
+      }
+
+      h2 {
+        margin-bottom: 14px;
+        font-size: clamp(1.35rem, 3vw, 2rem);
+      }
+
+      h3 {
+        margin: 20px 0 8px;
+        font-size: 1rem;
+      }
+
+      p {
+        margin: 10px 0;
+      }
+
+      .hero {
+        width: min(1180px, calc(100% - 32px));
+        margin: 0 auto;
+      }
+
+      .hero p {
+        max-width: 760px;
+        color: rgba(255, 255, 255, 0.86);
+        font-size: 1.05rem;
+      }
+
+      .meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 20px;
+      }
+
+      .chip {
+        border: 1px solid rgba(255, 255, 255, 0.28);
+        border-radius: 999px;
+        padding: 7px 11px;
+        background: rgba(255, 255, 255, 0.12);
+        color: #ffffff;
+        font-size: 0.9rem;
+      }
+
+      .section {
+        margin-top: 24px;
+        padding: 24px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--panel);
+        box-shadow: 0 10px 28px rgba(23, 32, 42, 0.06);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 14px;
+        margin-top: 16px;
+      }
+
+      .note {
+        border-left: 4px solid var(--accent);
+        padding: 12px 14px;
+        background: var(--accent-soft);
+        color: #224246;
+      }
+
+      .item {
+        min-height: 100%;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 14px;
+        background: #fbfdff;
+      }
+
+      .item strong {
+        display: block;
+        margin-bottom: 6px;
+      }
+
+      code {
+        border-radius: 5px;
+        padding: 2px 5px;
+        background: var(--code);
+        color: #23313d;
+        font-family:
+          "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+        font-size: 0.92em;
+      }
+
+      ul {
+        margin: 10px 0 0;
+        padding-left: 20px;
+      }
+
+      .diagram {
+        overflow-x: auto;
+        margin-top: 16px;
+        padding: 18px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #ffffff;
+      }
+
+      .mermaid {
+        min-width: 720px;
+      }
+
+      footer {
+        width: min(1180px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 24px 0 40px;
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+
+      @media (max-width: 760px) {
+        header {
+          padding: 36px 16px;
+        }
+
+        main {
+          width: calc(100% - 20px);
+          padding-top: 18px;
+        }
+
+        .hero,
+        footer {
+          width: calc(100% - 20px);
+        }
+
+        .section {
+          padding: 16px;
+        }
+
+        .diagram {
+          padding: 12px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="hero">
+        <h1>ShortLink SaaS MVP Architecture</h1>
+        <p>
+          Full serverless architecture for the ShortLink MVP, based on
+          <code>docs/SRS.md</code>, <code>AGENTS.md</code>, and the current AWS
+          CDK stack. DNS is managed by Cloudflare, while application workloads
+          run on AWS managed services.
+        </p>
+        <div class="meta" aria-label="Architecture constraints">
+          <span class="chip">FastAPI + Mangum</span>
+          <span class="chip">Next.js + TypeScript + Tailwind</span>
+          <span class="chip">AWS CDK</span>
+          <span class="chip">Cloudflare DNS</span>
+          <span class="chip">No Route53</span>
+          <span class="chip">No Redis/Kafka/Kubernetes</span>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section class="section">
+        <h2>1. System Context</h2>
+        <p>
+          Users access the dashboard and short-link redirects through Cloudflare
+          DNS records that point to AWS origins. CloudFront serves the frontend
+          and forwards API paths to API Gateway.
+        </p>
+        <div class="diagram">
+          <pre class="mermaid">
+flowchart LR
+  user["End User / Tenant Admin"]
+  cloudflare["Cloudflare DNS<br/>CNAME records"]
+  cf["AWS CloudFront<br/>HTTPS edge distribution"]
+  s3["S3 Frontend Bucket<br/>Next.js static export"]
+  api["API Gateway HTTP API<br/>/health /links /{slug}"]
+  lambda["AWS Lambda<br/>FastAPI + Mangum"]
+  cognito["Amazon Cognito<br/>User Pool + JWT"]
+  links["DynamoDB Links Table<br/>PK tenant_id / SK slug"]
+  clicks["DynamoDB Click Events Table<br/>PK tenant_id / SK slug_occurred_at"]
+  sqs["SQS Click Events Queue"]
+  cw["CloudWatch Logs"]
+
+  user -->|"www.shortlink.example / short.example"| cloudflare
+  cloudflare -->|"CNAME to distribution domain"| cf
+  cf -->|"Default behavior"| s3
+  cf -->|"api/* behavior"| api
+  user -->|"Hosted UI login"| cognito
+  api -->|"JWT protected routes"| cognito
+  api --> lambda
+  lambda --> links
+  lambda --> sqs
+  lambda --> cw
+  sqs -. "Phase 2 worker persists events" .-> clicks
+          </pre>
+        </div>
+        <div class="note">
+          MVP DNS stays outside AWS. CDK should output the CloudFront/API values
+          that must be copied into Cloudflare; it must not create Route53 hosted
+          zones or records.
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>2. AWS Deployment View</h2>
+        <p>
+          The CDK stack provisions one serverless application boundary with
+          CloudFront, S3, HTTP API, Lambda, Cognito, DynamoDB, SQS, and
+          CloudWatch. DynamoDB tables use on-demand billing for MVP cost control.
+        </p>
+        <div class="diagram">
+          <pre class="mermaid">
+flowchart TB
+  subgraph cloudflareZone["Cloudflare Account"]
+    dnsWww["CNAME www -> CloudFront"]
+    dnsShort["CNAME short -> CloudFront"]
+    dnsApi["Optional CNAME api -> API Gateway custom domain"]
+    dnsAcm["ACM DNS validation records"]
+  end
+
+  subgraph aws["AWS Account / Single Region"]
+    acm["AWS ACM Certificate<br/>DNS validated in Cloudflare"]
+    cf["CloudFront Distribution<br/>redirect HTTP to HTTPS"]
+
+    subgraph frontend["Frontend"]
+      bucket["Private S3 Bucket<br/>static Next.js output"]
+      deploy["BucketDeployment<br/>frontend/out + auth-config.json"]
+    end
+
+    subgraph backend["Backend"]
+      httpApi["API Gateway HTTP API"]
+      authorizer["Cognito JWT Authorizer"]
+      fn["Lambda BackendFunction<br/>Python 3.13"]
+      logs["CloudWatch Logs"]
+    end
+
+    subgraph identity["Identity"]
+      pool["Cognito User Pool"]
+      client["User Pool Client<br/>authorization code grant"]
+      domain["Cognito Hosted UI Domain"]
+    end
+
+    subgraph data["Data + Events"]
+      linksTable["LinksTable<br/>tenant_id + slug"]
+      clickTable["ClickEventsTable<br/>tenant_id + slug_occurred_at"]
+      queue["ClickEventsQueue"]
+    end
+  end
+
+  dnsWww --> cf
+  dnsShort --> cf
+  dnsAcm --> acm
+  acm --> cf
+  deploy --> bucket
+  cf --> bucket
+  cf -->|"api/*"| httpApi
+  httpApi --> authorizer
+  authorizer --> pool
+  pool --> client
+  client --> domain
+  httpApi --> fn
+  fn --> linksTable
+  fn --> queue
+  fn --> logs
+  queue -. "Phase 2 consumer" .-> clickTable
+          </pre>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>3. Frontend and Auth Flow</h2>
+        <p>
+          The Next.js dashboard is a static frontend hosted from S3 through
+          CloudFront. Cognito handles sign-in, and authenticated frontend calls
+          include a JWT for protected API routes.
+        </p>
+        <div class="diagram">
+          <pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor Admin as Tenant Admin
+  participant CF as CloudFront
+  participant S3 as S3 Frontend
+  participant FE as Next.js App
+  participant Cognito as Cognito Hosted UI
+  participant API as API Gateway
+  participant Lambda as FastAPI Lambda
+  participant DDB as DynamoDB Links
+
+  Admin->>CF: Open dashboard URL
+  CF->>S3: Fetch static page/assets
+  S3-->>CF: HTML, JS, CSS, auth-config.json
+  CF-->>Admin: Dashboard shell
+  Admin->>Cognito: Sign in
+  Cognito-->>FE: Authorization code callback
+  FE->>Cognito: Exchange code for tokens
+  Cognito-->>FE: ID/access tokens
+  FE->>API: GET/POST /links with Authorization header
+  API->>API: Validate JWT with Cognito authorizer
+  API->>Lambda: Forward request
+  Lambda->>DDB: Query or write tenant-scoped links
+  DDB-->>Lambda: Link data
+  Lambda-->>API: JSON response
+  API-->>FE: Dashboard data
+          </pre>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>4. Link Redirect and Click Event Flow</h2>
+        <p>
+          Public redirect requests resolve a slug through the backend service.
+          When configured, the backend publishes click events to SQS so redirect
+          latency stays small.
+        </p>
+        <div class="diagram">
+          <pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor Visitor
+  participant DNS as Cloudflare DNS
+  participant CF as CloudFront
+  participant API as API Gateway
+  participant Lambda as FastAPI Lambda
+  participant LinkService as Link Service
+  participant LinksRepo as Link Repository
+  participant DDB as DynamoDB Links
+  participant Publisher as Click Event Publisher
+  participant SQS as SQS Queue
+  participant ClickWorker as Future Queue Consumer
+  participant ClickDDB as DynamoDB Click Events
+
+  Visitor->>DNS: Open short URL /{slug}
+  DNS-->>Visitor: CloudFront target
+  Visitor->>CF: GET /{slug}
+  CF->>API: Forward redirect route
+  API->>Lambda: Invoke FastAPI route
+  Lambda->>LinkService: resolve_redirect(tenant_id, slug)
+  LinkService->>LinksRepo: find_by_slug(tenant_id, slug)
+  LinksRepo->>DDB: GetItem tenant_id + slug
+  DDB-->>LinksRepo: Link target URL
+  LinkService->>Publisher: publish click event
+  Publisher->>SQS: SendMessage
+  LinkService-->>Lambda: Redirect target
+  Lambda-->>Visitor: 307/302 redirect
+  SQS-.->>ClickWorker: Phase 2 consume message
+  ClickWorker-.->>ClickDDB: Persist click event
+          </pre>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>5. Backend Code Boundaries</h2>
+        <p>
+          API route handlers only parse HTTP input and delegate behavior.
+          Business rules live in services and domain models; persistence and
+          publishing live behind interfaces.
+        </p>
+        <div class="diagram">
+          <pre class="mermaid">
+flowchart TB
+  routes["app/api/routes.py<br/>FastAPI route handlers"]
+  deps["app/api/dependencies.py<br/>service/repository wiring"]
+  schemas["app/schemas<br/>Pydantic request/response"]
+  services["app/services/links.py<br/>business use cases"]
+  domain["app/domain<br/>framework-independent models/errors"]
+  repoIface["app/repositories/interfaces.py<br/>repository + publisher contracts"]
+  memoryRepo["app/repositories/memory.py<br/>tests/local"]
+  dynamoRepo["app/repositories/dynamodb.py<br/>AWS persistence"]
+  sqsRepo["app/repositories/sqs.py<br/>SQS publisher"]
+  awsDdb["DynamoDB"]
+  awsSqs["SQS"]
+  tests["backend/tests<br/>pytest service coverage"]
+
+  routes --> schemas
+  routes --> deps
+  deps --> services
+  services --> domain
+  services --> repoIface
+  repoIface --> memoryRepo
+  repoIface --> dynamoRepo
+  repoIface --> sqsRepo
+  dynamoRepo --> awsDdb
+  sqsRepo --> awsSqs
+  tests --> services
+  tests --> memoryRepo
+          </pre>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>6. Data Model</h2>
+        <p>
+          Tenant isolation is enforced by table keys. Phase 1 may use a
+          placeholder tenant dependency; Phase 2 should derive tenant identity
+          from Cognito claims.
+        </p>
+        <div class="diagram">
+          <pre class="mermaid">
+erDiagram
+  TENANT ||--o{ LINK : owns
+  TENANT ||--o{ CLICK_EVENT : records
+  LINK ||--o{ CLICK_EVENT : receives
+
+  TENANT {
+    string tenant_id PK
+    string name
+  }
+
+  LINK {
+    string tenant_id PK
+    string slug SK
+    string target_url
+    string title
+    datetime created_at
+    datetime updated_at
+    string created_by
+  }
+
+  CLICK_EVENT {
+    string tenant_id PK
+    string slug_occurred_at SK
+    string slug
+    datetime occurred_at
+    string user_agent
+    string ip_hash
+    string referrer
+  }
+          </pre>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>7. API Surface</h2>
+        <div class="grid">
+          <div class="item">
+            <strong><code>GET /health</code></strong>
+            Public health check used by deployments and smoke tests.
+          </div>
+          <div class="item">
+            <strong><code>GET /links</code></strong>
+            Protected route. Lists tenant-scoped links after Cognito JWT
+            validation.
+          </div>
+          <div class="item">
+            <strong><code>POST /links</code></strong>
+            Protected route. Creates a short link through the link service.
+          </div>
+          <div class="item">
+            <strong><code>GET /{slug}</code></strong>
+            Public route. Resolves a slug and redirects to the target URL.
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>8. MVP Scope Guardrails</h2>
+        <div class="grid">
+          <div class="item">
+            <strong>Use</strong>
+            <ul>
+              <li>Cloudflare DNS</li>
+              <li>CloudFront, S3, API Gateway, Lambda</li>
+              <li>DynamoDB on-demand tables</li>
+              <li>Cognito for identity</li>
+              <li>SQS for asynchronous click events</li>
+              <li>CloudWatch structured logs</li>
+            </ul>
+          </div>
+          <div class="item">
+            <strong>Do not use for MVP</strong>
+            <ul>
+              <li>Route53</li>
+              <li>Kubernetes, EKS, or EC2 server hosting</li>
+              <li>Kafka, Redis, GraphQL, or microservices</li>
+              <li>Multi-region routing or Global Accelerator</li>
+              <li>Billing, custom domains, or enterprise SSO</li>
+            </ul>
+          </div>
+          <div class="item">
+            <strong>Quality rules</strong>
+            <ul>
+              <li>Every feature includes tests</li>
+              <li>No business logic inside API route handlers</li>
+              <li>Repository/service/domain structure</li>
+              <li>Type hints and structured logging</li>
+              <li><code>pytest</code>, <code>ruff check .</code>, frontend tests and lint</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      Generated for ShortLink MVP. Open this file in a browser with internet
+      access so Mermaid can load from the CDN.
+    </footer>
+
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+
+      mermaid.initialize({
+        startOnLoad: true,
+        securityLevel: "strict",
+        theme: "base",
+        themeVariables: {
+          primaryColor: "#e5f4f3",
+          primaryTextColor: "#17202a",
+          primaryBorderColor: "#167a7f",
+          lineColor: "#6c7a89",
+          secondaryColor: "#eef4f8",
+          tertiaryColor: "#ffffff",
+          fontFamily:
+            "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
+        },
+      });
+    </script>
+  </body>
+</html>

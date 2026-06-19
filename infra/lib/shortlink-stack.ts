@@ -1,6 +1,7 @@
 import * as cdk from "aws-cdk-lib";
 import { Duration, RemovalPolicy } from "aws-cdk-lib";
 import * as apigatewayv2 from "aws-cdk-lib/aws-apigatewayv2";
+import * as authorizers from "aws-cdk-lib/aws-apigatewayv2-authorizers";
 import * as integrations from "aws-cdk-lib/aws-apigatewayv2-integrations";
 import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
 import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
@@ -47,6 +48,35 @@ export class ShortLinkStack extends cdk.Stack {
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
+    const frontendUrl =
+      this.node.tryGetContext("frontendUrl") ?? "https://djg0fa4zryeod.cloudfront.net";
+    const callbackUrl = `${frontendUrl}/auth/callback`;
+    const logoutUrl = frontendUrl;
+
+    const userPoolClient = new cognito.UserPoolClient(this, "UserPoolClient", {
+      userPool,
+      generateSecret: false,
+      authFlows: {
+        userSrp: true,
+      },
+      oAuth: {
+        flows: {
+          authorizationCodeGrant: true,
+        },
+        scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL, cognito.OAuthScope.PROFILE],
+        callbackUrls: [callbackUrl, "http://localhost:3000/auth/callback"],
+        logoutUrls: [logoutUrl, "http://localhost:3000"],
+      },
+      preventUserExistenceErrors: true,
+    });
+
+    const userPoolDomain = new cognito.UserPoolDomain(this, "UserPoolDomain", {
+      userPool,
+      cognitoDomain: {
+        domainPrefix: `shortlink-${this.account}-${this.region}`,
+      },
+    });
+
     const backendFunction = new lambda.Function(this, "BackendFunction", {
       runtime: lambda.Runtime.PYTHON_3_13,
       handler: "app.main.handler",
@@ -78,6 +108,7 @@ export class ShortLinkStack extends cdk.Stack {
         SHORTLINK_CLICK_EVENTS_TABLE_NAME: clickEventsTable.tableName,
         SHORTLINK_CLICK_EVENTS_QUEUE_URL: clickEventsQueue.queueUrl,
         SHORTLINK_USER_POOL_ID: userPool.userPoolId,
+        SHORTLINK_USER_POOL_CLIENT_ID: userPoolClient.userPoolClientId,
       },
     });
 
@@ -85,18 +116,72 @@ export class ShortLinkStack extends cdk.Stack {
     clickEventsTable.grantReadWriteData(backendFunction);
     clickEventsQueue.grantSendMessages(backendFunction);
 
+    const backendIntegration = new integrations.HttpLambdaIntegration(
+      "BackendIntegration",
+      backendFunction,
+    );
     const api = new apigatewayv2.HttpApi(this, "HttpApi", {
       apiName: "shortlink-api",
-      defaultIntegration: new integrations.HttpLambdaIntegration(
-        "BackendIntegration",
-        backendFunction,
-      ),
+      corsPreflight: {
+        allowHeaders: ["authorization", "content-type"],
+        allowMethods: [
+          apigatewayv2.CorsHttpMethod.GET,
+          apigatewayv2.CorsHttpMethod.POST,
+          apigatewayv2.CorsHttpMethod.OPTIONS,
+        ],
+        allowOrigins: [frontendUrl, "http://localhost:3000"],
+      },
+    });
+    const jwtAuthorizer = new authorizers.HttpJwtAuthorizer(
+      "CognitoJwtAuthorizer",
+      `https://cognito-idp.${this.region}.amazonaws.com/${userPool.userPoolId}`,
+      {
+        jwtAudience: [userPoolClient.userPoolClientId],
+      },
+    );
+
+    api.addRoutes({
+      path: "/health",
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: backendIntegration,
+    });
+    api.addRoutes({
+      path: "/links",
+      methods: [apigatewayv2.HttpMethod.GET, apigatewayv2.HttpMethod.POST],
+      integration: backendIntegration,
+      authorizer: jwtAuthorizer,
+    });
+    api.addRoutes({
+      path: "/{slug}",
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: backendIntegration,
+    });
+
+    const frontendRewriteFunction = new cloudfront.Function(this, "FrontendRewriteFunction", {
+      code: cloudfront.FunctionCode.fromInline(`
+function handler(event) {
+  var request = event.request;
+  var uri = request.uri;
+  if (uri.endsWith('/')) {
+    request.uri = uri + 'index.html';
+  } else if (!uri.includes('.')) {
+    request.uri = uri + '.html';
+  }
+  return request;
+}
+`),
     });
 
     const distribution = new cloudfront.Distribution(this, "FrontendDistribution", {
       defaultBehavior: {
         origin: origins.S3BucketOrigin.withOriginAccessControl(frontendBucket),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+        functionAssociations: [
+          {
+            eventType: cloudfront.FunctionEventType.VIEWER_REQUEST,
+            function: frontendRewriteFunction,
+          },
+        ],
       },
       additionalBehaviors: {
         "api/*": {
@@ -111,7 +196,18 @@ export class ShortLinkStack extends cdk.Stack {
     });
 
     new s3deploy.BucketDeployment(this, "FrontendDeployment", {
-      sources: [s3deploy.Source.asset("../frontend/out")],
+      sources: [
+        s3deploy.Source.asset("../frontend/out"),
+        s3deploy.Source.jsonData("auth-config.json", {
+          apiBaseUrl: api.apiEndpoint,
+          clientId: userPoolClient.userPoolClientId,
+          cognitoDomain: `https://${userPoolDomain.domainName}.auth.${this.region}.amazoncognito.com`,
+          logoutUri: logoutUrl,
+          redirectUri: callbackUrl,
+          region: this.region,
+          userPoolId: userPool.userPoolId,
+        }),
+      ],
       destinationBucket: frontendBucket,
       distribution,
     });
@@ -121,5 +217,12 @@ export class ShortLinkStack extends cdk.Stack {
     });
     new cdk.CfnOutput(this, "HttpApiEndpoint", { value: api.apiEndpoint });
     new cdk.CfnOutput(this, "UserPoolId", { value: userPool.userPoolId });
+    new cdk.CfnOutput(this, "UserPoolClientId", { value: userPoolClient.userPoolClientId });
+    new cdk.CfnOutput(this, "CognitoDomain", {
+      value: `https://${userPoolDomain.domainName}.auth.${this.region}.amazoncognito.com`,
+    });
+    new cdk.CfnOutput(this, "CognitoLoginUrl", {
+      value: `https://${userPoolDomain.domainName}.auth.${this.region}.amazoncognito.com/login?client_id=${userPoolClient.userPoolClientId}&response_type=code&scope=openid+email+profile&redirect_uri=${callbackUrl}`,
+    });
   }
 }

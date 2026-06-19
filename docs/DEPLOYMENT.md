@@ -76,7 +76,7 @@ Then create a link through the API and verify the item appears in DynamoDB.
 
 ## Known MVP Gaps
 
-- Cognito is provisioned but not yet wired into frontend/backend auth.
+- Cognito Hosted UI is used for login. See `docs/AUTH.md`.
 - Click events are published to SQS, but the SQS consumer Lambda is not implemented yet.
-- Frontend uses placeholder data and does not call the API yet.
+- Frontend uses placeholder dashboard data and only auth is wired to Cognito.
 - Custom domains and ACM certificates are intentionally out of scope for this phase.

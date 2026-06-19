@@ -1,6 +1,7 @@
 {
   "app": "npx ts-node --prefer-ts-exts bin/shortlink-infra.ts",
   "context": {
+    "frontendUrl": "https://djg0fa4zryeod.cloudfront.net",
     "@aws-cdk/aws-lambda:recognizeLayerVersion": true
   }
 }

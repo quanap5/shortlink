@@ -7,6 +7,7 @@ const navItems = [
   { href: "/links/create", label: "Create" },
   { href: "/analytics", label: "Analytics" },
   { href: "/login", label: "Login" },
+  { href: "/logout", label: "Logout" },
 ];
 
 export function Shell({ children }: { children: ReactNode }) {
