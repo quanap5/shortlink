@@ -127,14 +127,11 @@ export async function exchangeCodeForTokens(
 
 export async function readTokenErrorMessage(response: Response): Promise<string> {
   try {
-    const body = (await response.json()) as TokenErrorResponse;
-    const code = typeof body.error === "string" ? body.error : "unknown_error";
-    const description =
-      typeof body.error_description === "string" ? `: ${body.error_description}` : "";
-    return `Token exchange failed (${code}${description}).`;
+    await response.json() as TokenErrorResponse;
   } catch {
-    return `Token exchange failed (${response.status}).`;
+    // Keep the user-facing message intentionally provider-neutral.
   }
+  return "Unable to complete sign in. Please try again.";
 }
 
 export function saveTokens(tokens: TokenResponse): void {

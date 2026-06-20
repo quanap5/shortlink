@@ -12,7 +12,7 @@ import {
 } from "@/lib/auth";
 
 export default function LoginPage() {
-  const [status, setStatus] = useState("Ready to sign in with Cognito.");
+  const [status, setStatus] = useState("Ready to sign in.");
   const [isLoading, setIsLoading] = useState(false);
   const [email, setEmail] = useState<string | null>(null);
 
@@ -25,7 +25,7 @@ export default function LoginPage() {
 
   async function startLogin() {
     setIsLoading(true);
-    setStatus("Redirecting to Cognito...");
+    setStatus("Opening secure sign in...");
     try {
       const config = await loadAuthConfig();
       const pkce = await createPkcePair();
@@ -53,7 +53,7 @@ export default function LoginPage() {
         disabled={isLoading}
         onClick={startLogin}
       >
-        Sign in with Cognito
+        Sign in
       </button>
     </section>
   );

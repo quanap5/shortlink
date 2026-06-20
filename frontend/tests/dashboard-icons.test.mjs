@@ -23,7 +23,12 @@ const authNavSource = readFileSync(
   "utf8",
 );
 const shellSource = readFileSync(new URL("../components/Shell.tsx", import.meta.url), "utf8");
+const globalStylesSource = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
 const linksSource = readFileSync(new URL("../app/links/page.tsx", import.meta.url), "utf8");
+const createLinkSource = readFileSync(
+  new URL("../app/links/create/page.tsx", import.meta.url),
+  "utf8",
+);
 
 test("dashboard stat cards include sketch icons for each metric", () => {
   for (const label of ["Total links icon", "Total clicks icon", "Total tenants icon"]) {
@@ -82,16 +87,29 @@ test("auth UI waits for persisted id token before continuing", () => {
   assert.match(authCallbackSource, /clearTokens/);
 });
 
-test("signed-in header shows tenant id from the id token", () => {
+test("signed-in header shows tenant id as a workspace badge", () => {
   assert.match(authNavSource, /getTenantIdFromIdToken/);
   assert.match(authNavSource, /tenantId/);
-  assert.match(authNavSource, /Tenant:/);
+  assert.match(authNavSource, /Workspace/);
+  assert.doesNotMatch(authNavSource, /Tenant:/);
+  assert.match(authNavSource, /<svg/);
+  assert.match(authNavSource, /font-mono/);
+  assert.match(authNavSource, /tabular-nums/);
+  assert.match(authNavSource, /text-terracotta/);
 });
 
 test("app header remains visible while scrolling", () => {
   assert.match(shellSource, /sticky/);
   assert.match(shellSource, /top-0/);
   assert.match(shellSource, /z-50/);
+});
+
+test("brand logo uses the original framed brand mark", () => {
+  assert.match(shellSource, /TwinQX logo/);
+  assert.match(shellSource, /\/twinqx-logo\.jpg/);
+  assert.match(shellSource, /bg-chocolate/);
+  assert.doesNotMatch(shellSource, /LogoCube/);
+  assert.doesNotMatch(globalStylesSource, /logo-cube/);
 });
 
 test("links page periodically refreshes analytics counts", () => {
@@ -101,13 +119,9 @@ test("links page periodically refreshes analytics counts", () => {
 });
 
 test("create link page supports comma-separated tags", () => {
-  const createSource = readFileSync(
-    new URL("../app/links/create/page.tsx", import.meta.url),
-    "utf8",
-  );
-  assert.match(createSource, /Tags/);
-  assert.match(createSource, /parseTags/);
-  assert.match(createSource, /tagsInput/);
+  assert.match(createLinkSource, /Tags/);
+  assert.match(createLinkSource, /parseTags/);
+  assert.match(createLinkSource, /tagsInput/);
   assert.match(apiSource, /tags\?: string\[\]/);
 });
 
@@ -133,4 +147,29 @@ test("links table paginates larger result sets", () => {
   assert.match(linksSource, /currentPage/);
   assert.match(linksSource, /paginatedLinks/);
   assert.match(linksSource, /PaginationControls/);
+});
+
+test("login UI hides provider-specific Cognito wording", () => {
+  const loginSource = readFileSync(new URL("../app/login/page.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(loginSource, /Cognito/);
+  assert.match(loginSource, /Ready to sign in/);
+  assert.match(loginSource, /Opening secure sign in/);
+});
+
+test("auth callback uses friendly user-facing copy", () => {
+  assert.doesNotMatch(authCallbackSource, /Auth callback/);
+  assert.match(authCallbackSource, /Completing sign in/);
+  assert.match(authSource, /Unable to complete sign in/);
+});
+
+test("frontend visible copy avoids internal launch wording", () => {
+  const visibleCopySources = [
+    source,
+    shellSource,
+    linksSource,
+    createLinkSource,
+    readFileSync(new URL("../app/layout.tsx", import.meta.url), "utf8"),
+  ].join("\n");
+  assert.doesNotMatch(visibleCopySources, /\bconsole\b/i);
+  assert.doesNotMatch(visibleCopySources, /\bmvp\b/i);
 });

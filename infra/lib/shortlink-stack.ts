@@ -86,6 +86,8 @@ export class ShortLinkStack extends cdk.Stack {
     const frontendCertificateArn = this.node.tryGetContext("frontendCertificateArn") as
       | string
       | undefined;
+    const authDomainName = this.node.tryGetContext("authDomainName") as string | undefined;
+    const authCertificateArn = this.node.tryGetContext("authCertificateArn") as string | undefined;
     const frontendCertificate =
       frontendCertificateArn && frontendDomainName
         ? acm.Certificate.fromCertificateArn(
@@ -94,6 +96,7 @@ export class ShortLinkStack extends cdk.Stack {
             frontendCertificateArn,
           )
         : undefined;
+    const useCustomAuthDomain = Boolean(authDomainName && authCertificateArn);
     const callbackUrl = `${frontendUrl}/auth/callback`;
     const logoutUrl = frontendUrl;
 
@@ -150,12 +153,28 @@ export class ShortLinkStack extends cdk.Stack {
     registrationUserPoolClientResource.addPropertyDeletionOverride("AllowedOAuthScopes");
     registrationUserPoolClientResource.addPropertyDeletionOverride("LogoutURLs");
 
-    const userPoolDomain = new cognito.UserPoolDomain(this, "UserPoolDomain", {
-      userPool,
-      cognitoDomain: {
-        domainPrefix: `shortlink-${this.account}-${this.region}`,
-      },
-    });
+    const userPoolDomain =
+      useCustomAuthDomain
+        ? new cognito.UserPoolDomain(this, "UserPoolDomain", {
+            userPool,
+            customDomain: {
+              certificate: acm.Certificate.fromCertificateArn(
+                this,
+                "AuthDomainCertificate",
+                authCertificateArn!,
+              ),
+              domainName: authDomainName!,
+            },
+          })
+        : new cognito.UserPoolDomain(this, "UserPoolDomain", {
+            userPool,
+            cognitoDomain: {
+              domainPrefix: `shortlink-${this.account}-${this.region}`,
+            },
+          });
+    const cognitoBaseUrl = useCustomAuthDomain && authDomainName
+      ? `https://${authDomainName}`
+      : `https://${userPoolDomain.domainName}.auth.${this.region}.amazoncognito.com`;
 
     const backendCode = lambda.Code.fromAsset("../backend", {
         exclude: [
@@ -383,7 +402,7 @@ function handler(event) {
         s3deploy.Source.jsonData("auth-config.json", {
           apiBaseUrl: api.apiEndpoint,
           clientId: userPoolClient.userPoolClientId,
-          cognitoDomain: `https://${userPoolDomain.domainName}.auth.${this.region}.amazoncognito.com`,
+          cognitoDomain: cognitoBaseUrl,
           logoutUri: logoutUrl,
           redirectBaseUrl: frontendUrl,
           redirectUri: callbackUrl,
@@ -407,10 +426,13 @@ function handler(event) {
     new cdk.CfnOutput(this, "UserPoolId", { value: userPool.userPoolId });
     new cdk.CfnOutput(this, "UserPoolClientId", { value: userPoolClient.userPoolClientId });
     new cdk.CfnOutput(this, "CognitoDomain", {
-      value: `https://${userPoolDomain.domainName}.auth.${this.region}.amazoncognito.com`,
+      value: cognitoBaseUrl,
+    });
+    new cdk.CfnOutput(this, "AuthCustomDomainName", {
+      value: useCustomAuthDomain && authDomainName ? authDomainName : userPoolDomain.domainName,
     });
     new cdk.CfnOutput(this, "CognitoLoginUrl", {
-      value: `https://${userPoolDomain.domainName}.auth.${this.region}.amazoncognito.com/login?client_id=${userPoolClient.userPoolClientId}&response_type=code&scope=openid+email+profile&redirect_uri=${callbackUrl}`,
+      value: `${cognitoBaseUrl}/login?client_id=${userPoolClient.userPoolClientId}&response_type=code&scope=openid+email+profile&redirect_uri=${callbackUrl}`,
     });
   }
 }

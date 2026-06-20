@@ -48,6 +48,45 @@ Proxy status: DNS only
 
 Wait until ACM status becomes `Issued` before running `cdk deploy`.
 
+## Auth Custom Domain
+
+ShortLink will use a branded Cognito Hosted UI domain:
+
+```text
+https://auth.twinqx.com
+```
+
+ACM certificate request:
+
+```text
+arn:aws:acm:us-east-1:373249432962:certificate/f1564666-0376-437b-99b2-b8b3288104e2
+```
+
+Add this DNS validation record in Cloudflare:
+
+```text
+Type: CNAME
+Name: _1b3618cd50c43d85f706a83d525c3056.auth
+Value: _adcefae8bbbe4a931bf36a05bf15deb2.jkddzztszm.acm-validations.aws
+Proxy status: DNS only
+```
+
+After ACM status becomes `Issued`, add these CDK context values:
+
+```json
+"authDomainName": "auth.twinqx.com",
+"authCertificateArn": "arn:aws:acm:us-east-1:373249432962:certificate/f1564666-0376-437b-99b2-b8b3288104e2"
+```
+
+After CDK deploy creates the Cognito custom domain, add this Cloudflare DNS record:
+
+```text
+Type: CNAME
+Name: auth
+Value: <Cognito custom domain alias target from AWS Console>
+Proxy status: DNS only
+```
+
 ## Legacy MVP Records
 
 These were earlier examples for generic MVP DNS. The active frontend record for this deployment is `link`.

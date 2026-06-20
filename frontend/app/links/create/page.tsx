@@ -91,7 +91,7 @@ export default function CreateLinkPage() {
       <section className="retro-card-white w-full p-6 md:p-8">
         <div className="text-center">
           <p className="inline-flex border-2 border-ink bg-yellow px-2 py-1 text-xs font-black uppercase tracking-[0.14em]">
-            Shortener console
+            ShortLink Builder
           </p>
           <h1 className="mt-3 text-4xl font-black uppercase tracking-normal">Create ShortLink</h1>
           <p className="mx-auto mt-3 max-w-2xl text-sm font-semibold text-ink/70">

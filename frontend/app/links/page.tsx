@@ -105,7 +105,7 @@ export default function LinkListPage() {
         </p>
         <h1 className="mt-3 text-3xl font-black tracking-normal">Links</h1>
         <p className="mt-2 text-sm font-semibold text-ink/70">
-          Tenant-scoped short links for the MVP. Click counts refresh automatically.
+          Tenant-scoped short links with click counts that refresh automatically.
         </p>
       </div>
       {error ? (

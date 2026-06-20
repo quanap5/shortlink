@@ -76,7 +76,7 @@ export default function DashboardPage() {
     <div className="space-y-8">
       <section className="retro-card bg-yellow p-6">
         <p className="inline-flex border-2 border-ink bg-white px-2 py-1 text-xs font-black uppercase tracking-[0.16em]">
-          MVP Dashboard
+          Link Dashboard
         </p>
         <h1 className="mt-3 text-4xl font-black uppercase tracking-normal md:text-6xl">
           TwinQX ShortLink

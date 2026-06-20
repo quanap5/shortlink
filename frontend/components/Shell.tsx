@@ -30,7 +30,7 @@ export function Shell({ children }: { children: ReactNode }) {
             <span className="leading-none">
               <span className="block text-2xl font-black uppercase">TwinQX</span>
               <span className="block text-xs font-bold uppercase tracking-[0.16em] text-terracotta">
-                ShortLink Console
+                ShortLink Studio
               </span>
             </span>
           </Link>

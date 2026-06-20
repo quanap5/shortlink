@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "TwinQX ShortLink",
-  description: "TwinQX ShortLink SaaS MVP dashboard",
+  description: "TwinQX ShortLink SaaS dashboard",
 };
 
 export default function RootLayout({

@@ -71,7 +71,7 @@ export default function AuthCallbackPage() {
 
   return (
     <section className="max-w-xl rounded-lg border border-line bg-white p-6">
-      <h1 className="text-2xl font-semibold tracking-normal">Auth callback</h1>
+      <h1 className="text-2xl font-semibold tracking-normal">Completing sign in</h1>
       <p className="mt-3 text-sm text-slate-600">{message}</p>
       {isComplete ? (
         <Link
