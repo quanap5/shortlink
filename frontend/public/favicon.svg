@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="TwinQX ShortLink favicon">
+  <defs>
+    <linearGradient id="bar" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#ffa91f" />
+      <stop offset="0.48" stop-color="#f28900" />
+      <stop offset="1" stop-color="#da6300" />
+    </linearGradient>
+    <filter id="shadow" x="-8%" y="-8%" width="116%" height="116%">
+      <feDropShadow dx="7" dy="8" stdDeviation="0" flood-color="#7e4800" flood-opacity="0.28" />
+    </filter>
+  </defs>
+  <g filter="url(#shadow)" fill="url(#bar)">
+    <rect x="73" y="90" width="366" height="51" rx="25.5" />
+    <rect x="121" y="197" width="270" height="45" rx="22.5" />
+    <rect x="168" y="301" width="176" height="45" rx="22.5" />
+    <circle cx="256" cy="423" r="24" />
+  </g>
+</svg>
