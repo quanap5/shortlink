@@ -71,6 +71,7 @@ class AnalyticsIngestionService:
             ("browser", event.browser_family, {"browser": event.browser_family}),
             ("os", event.os_family, {"os": event.os_family}),
             ("referrer", event.referrer, {"referrer": event.referrer}),
+            ("source", event.source, {"source": event.source}),
         ]
         if event.visitor_hash:
             dimensions.append(
@@ -180,7 +181,7 @@ class AnalyticsQueryService:
         date_range: AnalyticsDateRange,
         limit: int = 10,
     ) -> list[AnalyticsBreakdownItem]:
-        allowed = {"country", "city", "device", "browser", "os", "referrer"}
+        allowed = {"country", "city", "device", "browser", "os", "referrer", "source"}
         if dimension not in allowed:
             raise ValueError("Unsupported analytics dimension.")
         return self._dimension_items(tenant_id, dimension, date_range, limit)

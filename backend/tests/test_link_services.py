@@ -333,8 +333,9 @@ def test_click_event_service_is_fail_soft_when_publisher_fails() -> None:
 
 
 class FakeRequest:
-    def __init__(self, headers: dict[str, str]) -> None:
+    def __init__(self, headers: dict[str, str], query_params: dict[str, str] | None = None) -> None:
         self.headers = headers
+        self.query_params = query_params or {}
         self.cookies: dict[str, str] = {}
         self.client = None
 
@@ -387,3 +388,16 @@ def test_public_redirect_disables_browser_cache_for_analytics() -> None:
     assert response.headers["location"] == "https://example.com/docs"
     assert response.headers["cache-control"] == "no-store"
     assert click_service.clicks[0]["tenant_id"] == "tenant-a"
+
+
+def test_public_redirect_records_qr_source_when_present() -> None:
+    click_service = FakeClickService()
+
+    redirect_link(  # type: ignore[arg-type]
+        slug="docs",
+        request=FakeRequest({"user-agent": "pytest"}, query_params={"src": "qr"}),
+        redirect_service=FakeRedirectService(),
+        click_service=click_service,
+    )
+
+    assert click_service.clicks[0]["source"] == "qr"

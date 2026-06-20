@@ -50,6 +50,7 @@ export type ClickEventResponse = {
   device_family: string;
   occurred_at: string;
   slug: string;
+  source: string;
   target_url: string;
 };
 
@@ -106,6 +107,8 @@ export type AnalyticsBreakdownResponse = {
   items: AnalyticsBreakdownItem[];
 };
 
+export type QrFormat = "png" | "svg";
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -160,6 +163,34 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
 
   return response.json() as Promise<T>;
+}
+
+async function apiBlobFetch(path: string, init: RequestInit = {}): Promise<Blob> {
+  const token = readTenantIdToken();
+  if (!token) {
+    throw new ApiError(
+      "Please sign in with a verified tenant account before using ShortLink.",
+      401,
+    );
+  }
+
+  const config = await loadAuthConfig();
+  const headers = new Headers(init.headers);
+  headers.set("Authorization", `Bearer ${token}`);
+
+  const response = await fetch(`${config.apiBaseUrl}${path}`, {
+    ...init,
+    headers,
+  });
+
+  if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      clearTokens();
+    }
+    throw new ApiError(await readErrorMessage(response), response.status);
+  }
+
+  return response.blob();
 }
 
 export async function createLink(input: CreateLinkInput): Promise<LinkResponse> {
@@ -229,7 +260,7 @@ export async function getAnalyticsTimeseries(range: AnalyticsRange): Promise<Ana
 }
 
 export async function getAnalyticsBreakdown(
-  dimension: "country" | "city" | "device" | "browser" | "os" | "referrer",
+  dimension: "country" | "city" | "device" | "browser" | "os" | "referrer" | "source",
   range: AnalyticsRange,
   limit = 10,
 ): Promise<AnalyticsBreakdownItem[]> {
@@ -252,6 +283,14 @@ export async function getAnalyticsTopLinks(
 export async function getAnalyticsMap(range: AnalyticsRange): Promise<AnalyticsBreakdownItem[]> {
   const response = await apiFetch<AnalyticsBreakdownResponse>(`/analytics/map?range=${range}`);
   return response.items;
+}
+
+export async function fetchLinkQr(slug: string, format: QrFormat): Promise<Blob> {
+  return apiBlobFetch(`/api/links/${encodeURIComponent(slug)}/qr?format=${format}`);
+}
+
+export async function downloadLinkQr(slug: string, format: QrFormat): Promise<Blob> {
+  return apiBlobFetch(`/api/links/${encodeURIComponent(slug)}/qr/download?format=${format}`);
 }
 
 export function buildShortUrl(config: AuthConfig, slug: string): string {

@@ -1,6 +1,7 @@
 from functools import lru_cache
+from typing import Annotated
 
-from fastapi import HTTPException, Request, status
+from fastapi import Depends, HTTPException, Request, status
 
 from app.api.tenant import MissingTenantClaimError, require_tenant_id_from_event
 from app.core.config import get_settings
@@ -19,6 +20,7 @@ from app.repositories.memory import (
 )
 from app.services.analytics import AnalyticsQueryService
 from app.services.links import ClickEventService, LinkCreationService, RedirectService
+from app.services.qr_codes import QrCodeService
 from app.services.tenants import TenantRegistrationService
 
 
@@ -97,6 +99,12 @@ def get_analytics_query_service() -> AnalyticsQueryService:
         get_analytics_aggregate_repository(),
         get_link_repository(),
     )
+
+
+def get_qr_code_service(
+    links: Annotated[LinkRepository, Depends(get_link_repository)],
+) -> QrCodeService:
+    return QrCodeService(links, get_settings().public_base_url)
 
 
 @lru_cache

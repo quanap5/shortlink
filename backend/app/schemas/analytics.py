@@ -12,6 +12,7 @@ class ClickEventResponse(BaseModel):
     country_code: str | None = None
     device_family: str
     browser_family: str
+    source: str
 
 
 class LinkAnalyticsResponse(BaseModel):

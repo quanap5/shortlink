@@ -45,6 +45,7 @@ class ClickEvent:
     latitude: float | None = None
     longitude: float | None = None
     referrer: str = "direct"
+    source: str = "direct"
     device_family: str = "unknown"
     browser_family: str = "unknown"
     os_family: str = "unknown"
