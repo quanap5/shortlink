@@ -129,6 +129,7 @@ class ClickEventService:
         latitude: float | None = None,
         longitude: float | None = None,
         referrer: str | None = None,
+        source: str | None = None,
         visitor_id: str | None = None,
     ) -> ClickEvent:
         ip_hash = hash_text(ip_address)
@@ -148,6 +149,7 @@ class ClickEventService:
             latitude=latitude,
             longitude=longitude,
             referrer=normalize_referrer(referrer),
+            source=normalize_source(source),
             device_family=classify_device(user_agent),
             browser_family=classify_browser(user_agent),
             os_family=classify_os(user_agent),
@@ -256,6 +258,13 @@ def normalize_referrer(referrer: str | None) -> str:
     host = parsed.netloc or parsed.path
     host = host.lower().removeprefix("www.")
     return host or "direct"
+
+
+def normalize_source(source: str | None) -> str:
+    if not source:
+        return "direct"
+    normalized = source.strip().lower()
+    return "qr" if normalized == "qr" else "direct"
 
 
 def classify_device(user_agent: str | None) -> str:

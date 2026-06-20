@@ -11,6 +11,7 @@ import {
 } from "@/lib/api";
 import { loadAuthConfig, type AuthConfig } from "@/lib/auth";
 import { CopyButton } from "@/components/CopyButton";
+import { QrCodeActions } from "@/components/QrCodeActions";
 
 type SortKey = "slug" | "created_at" | "clicks" | "status";
 type SortDirection = "asc" | "desc";
@@ -134,6 +135,7 @@ export default function LinkListPage() {
                 onClick={() => updateSort("status")}
               />
               <th className="border-b-4 border-ink px-4 py-3 font-black">Tags</th>
+              <th className="border-b-4 border-ink px-4 py-3 font-black">QR</th>
               <SortableHeader
                 active={sortKey === "clicks"}
                 align="right"
@@ -152,14 +154,14 @@ export default function LinkListPage() {
           <tbody>
             {isLoading ? (
               <tr>
-                <td className="px-4 py-6 font-bold text-ink/70" colSpan={6}>
+                <td className="px-4 py-6 font-bold text-ink/70" colSpan={7}>
                   Loading links...
                 </td>
               </tr>
             ) : null}
             {!isLoading && !error && links.length === 0 ? (
               <tr>
-                <td className="px-4 py-6 font-bold text-ink/70" colSpan={6}>
+                <td className="px-4 py-6 font-bold text-ink/70" colSpan={7}>
                   No links yet.{" "}
                   <Link className="font-black text-ink underline" href="/links/create">
                     Create one
@@ -199,6 +201,9 @@ export default function LinkListPage() {
                 </td>
                 <td className="px-4 py-3">
                   <TagList tags={link.tags ?? []} />
+                </td>
+                <td className="px-4 py-3">
+                  <QrCodeActions slug={link.slug} />
                 </td>
                 <td className="px-4 py-3 text-right font-black">
                   {analytics[link.slug]?.total_hits ?? 0}
@@ -242,17 +247,63 @@ function SortableHeader({
 }) {
   return (
     <th
+      aria-sort={active ? (direction === "asc" ? "ascending" : "descending") : "none"}
       className={`border-b-4 border-ink px-4 py-3 font-black ${
         align === "right" ? "text-right" : ""
       }`}
     >
       <button
-        className="inline-flex items-center gap-1 font-black uppercase"
+        className="group/sort inline-flex min-h-9 items-center gap-2 border-2 border-transparent px-2 py-1 font-black uppercase transition-transform hover:-translate-y-0.5 hover:border-ink hover:bg-cream focus:outline-none focus:ring-4 focus:ring-cream"
         onClick={onClick}
+        title={`Sort by ${label}`}
         type="button"
       >
         {label}
-        <span aria-hidden="true">{active ? direction.toUpperCase() : "SORT"}</span>
+        <span
+          aria-hidden="true"
+          className="inline-flex h-5 w-5 items-center justify-center text-ink/60 transition-transform group-hover/sort:translate-y-0.5 group-hover/sort:text-ink"
+        >
+          {active ? (
+            direction === "asc" ? (
+              <svg
+                className="h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="3"
+                viewBox="0 0 24 24"
+              >
+                <path d="m6 15 6-6 6 6" />
+              </svg>
+            ) : (
+              <svg
+                className="h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="3"
+                viewBox="0 0 24 24"
+              >
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            )
+          ) : (
+            <svg
+              className="h-4 w-4"
+              fill="none"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="3"
+              viewBox="0 0 24 24"
+            >
+              <path d="m8 7 4-4 4 4" />
+              <path d="m16 17-4 4-4-4" />
+            </svg>
+          )}
+        </span>
       </button>
     </th>
   );
@@ -293,23 +344,47 @@ function PaginationControls({
           <option value={50}>50 rows</option>
         </select>
         <button
-          className="retro-button retro-button-secondary min-h-10 px-3 py-1 text-xs disabled:opacity-50"
+          aria-label="Previous page"
+          className="grid h-10 w-10 place-items-center rounded-full border-2 border-ink bg-transparent text-ink transition-transform hover:-translate-x-0.5 focus:outline-none focus:ring-4 focus:ring-yellow disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-x-0"
           disabled={currentPage <= 1}
           onClick={onPrevious}
           type="button"
         >
-          Previous
+          <svg
+            aria-hidden="true"
+            className="h-5 w-5"
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="3"
+            viewBox="0 0 24 24"
+          >
+            <path d="m15 6-6 6 6 6" />
+          </svg>
         </button>
         <span className="font-black">
           Page {currentPage} / {totalPages}
         </span>
         <button
-          className="retro-button retro-button-secondary min-h-10 px-3 py-1 text-xs disabled:opacity-50"
+          aria-label="Next page"
+          className="grid h-10 w-10 place-items-center rounded-full border-2 border-ink bg-transparent text-ink transition-transform hover:translate-x-0.5 focus:outline-none focus:ring-4 focus:ring-yellow disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-x-0"
           disabled={currentPage >= totalPages}
           onClick={onNext}
           type="button"
         >
-          Next
+          <svg
+            aria-hidden="true"
+            className="h-5 w-5"
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="3"
+            viewBox="0 0 24 24"
+          >
+            <path d="m9 6 6 6-6 6" />
+          </svg>
         </button>
       </div>
     </div>

@@ -205,6 +205,7 @@ export class ShortLinkStack extends cdk.Stack {
       SHORTLINK_CLICK_EVENTS_TABLE_NAME: clickEventsTable.tableName,
       SHORTLINK_ANALYTICS_AGGREGATES_TABLE_NAME: analyticsAggregatesTable.tableName,
       SHORTLINK_CLICK_EVENTS_QUEUE_URL: clickEventsQueue.queueUrl,
+      SHORTLINK_PUBLIC_BASE_URL: frontendUrl,
       SHORTLINK_USER_POOL_ID: userPool.userPoolId,
       SHORTLINK_USER_POOL_CLIENT_ID: userPoolClient.userPoolClientId,
     };
@@ -327,6 +328,19 @@ export class ShortLinkStack extends cdk.Stack {
       integration: backendIntegration,
       authorizer: jwtAuthorizer,
     });
+    for (const path of [
+      "/links/{slug}/qr",
+      "/links/{slug}/qr/download",
+      "/api/links/{slug}/qr",
+      "/api/links/{slug}/qr/download",
+    ]) {
+      api.addRoutes({
+        path,
+        methods: [apigatewayv2.HttpMethod.GET],
+        integration: backendIntegration,
+        authorizer: jwtAuthorizer,
+      });
+    }
     api.addRoutes({
       path: "/{slug}",
       methods: [apigatewayv2.HttpMethod.GET],

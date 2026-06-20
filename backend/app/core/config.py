@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     click_events_queue_url: str | None = Field(default=None)
     cognito_registration_client_id: str | None = Field(default=None)
     cognito_registration_client_secret: str | None = Field(default=None)
+    public_base_url: str = "https://link.twinqx.com"
 
 
 @lru_cache

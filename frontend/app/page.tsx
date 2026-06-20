@@ -1,3 +1,10 @@
+"use client";
+
+import Link from "next/link";
+import { useCallback, useEffect, useState } from "react";
+import { getAnalyticsSummary, getAnalyticsTimeseries } from "@/lib/api";
+import { getTenantIdFromIdToken, readTenantIdToken } from "@/lib/auth";
+
 const stats = [
   {
     accent: "bg-yellow",
@@ -20,7 +27,7 @@ const stats = [
       </svg>
     ),
     label: "Links",
-    value: "3",
+    metric: "links",
   },
   {
     accent: "bg-pink",
@@ -42,7 +49,7 @@ const stats = [
       </svg>
     ),
     label: "Clicks today",
-    value: "128",
+    metric: "clicksToday",
   },
   {
     accent: "bg-teal",
@@ -67,11 +74,66 @@ const stats = [
       </svg>
     ),
     label: "Tenants",
-    value: "1",
+    metric: "tenants",
   },
-];
+] as const;
+
+type DashboardMetric = (typeof stats)[number]["metric"];
+type DashboardStats = Record<DashboardMetric, number>;
+
+const emptyStats: DashboardStats = {
+  clicksToday: 0,
+  links: 0,
+  tenants: 0,
+};
 
 export default function DashboardPage() {
+  const [dashboardStats, setDashboardStats] = useState<DashboardStats>(emptyStats);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const loadDashboardStats = useCallback(async (showLoading = false) => {
+    if (showLoading) {
+      setIsLoading(true);
+    }
+    setError(null);
+
+    const idToken = readTenantIdToken();
+    const tenantId = idToken ? getTenantIdFromIdToken(idToken) : null;
+    if (!tenantId) {
+      setDashboardStats(emptyStats);
+      setError("Please sign in before viewing dashboard metrics.");
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      const [summary, timeseries] = await Promise.all([
+        getAnalyticsSummary("7d"),
+        getAnalyticsTimeseries("7d"),
+      ]);
+      setDashboardStats({
+        clicksToday: timeseries.at(-1)?.clicks ?? 0,
+        links: summary.total_links,
+        tenants: 1,
+      });
+    } catch (caught) {
+      setDashboardStats(emptyStats);
+      setError(caught instanceof Error ? caught.message : "Unable to load dashboard metrics.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadDashboardStats(true);
+    const refreshTimer = setInterval(() => {
+      void loadDashboardStats();
+    }, 15000);
+
+    return () => clearInterval(refreshTimer);
+  }, [loadDashboardStats]);
+
   return (
     <div className="space-y-8">
       <section className="retro-card bg-yellow p-6">
@@ -86,6 +148,15 @@ export default function DashboardPage() {
         </p>
       </section>
 
+      {error ? (
+        <div className="retro-card-white bg-pink p-4 text-sm font-bold text-ink">
+          {error}
+          <Link className="ml-2 font-medium underline" href="/login">
+            Login
+          </Link>
+        </div>
+      ) : null}
+
       <section className="grid gap-4 md:grid-cols-3">
         {stats.map((stat) => (
           <div
@@ -97,7 +168,9 @@ export default function DashboardPage() {
                 <p className="text-xs font-black uppercase tracking-[0.14em] text-warm">
                   {stat.label}
                 </p>
-                <p className="mt-2 text-4xl font-black">{stat.value}</p>
+                <p className="mt-2 text-4xl font-black">
+                  {isLoading ? "..." : dashboardStats[stat.metric].toLocaleString()}
+                </p>
               </div>
               <div
                 className={`${stat.accent} flex h-12 w-12 shrink-0 items-center justify-center border-4 border-ink text-ink shadow-[4px_4px_0_#2a1a12] transition-transform duration-150 group-hover/stat:-translate-y-1 group-hover/stat:-rotate-3`}

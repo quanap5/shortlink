@@ -25,6 +25,10 @@ const authNavSource = readFileSync(
 const shellSource = readFileSync(new URL("../components/Shell.tsx", import.meta.url), "utf8");
 const globalStylesSource = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
 const linksSource = readFileSync(new URL("../app/links/page.tsx", import.meta.url), "utf8");
+const qrActionsSource = readFileSync(
+  new URL("../components/QrCodeActions.tsx", import.meta.url),
+  "utf8",
+);
 const createLinkSource = readFileSync(
   new URL("../app/links/create/page.tsx", import.meta.url),
   "utf8",
@@ -41,6 +45,20 @@ test("dashboard stat icon badges animate on hover", () => {
   assert.match(source, /group-hover\/stat:-rotate-3/);
   assert.match(source, /group-hover\/stat:-translate-y-1/);
   assert.match(source, /transition-transform/);
+});
+
+test("dashboard stat cards load live tenant analytics", () => {
+  assert.match(source, /"use client"/);
+  assert.match(source, /getAnalyticsSummary/);
+  assert.match(source, /getAnalyticsTimeseries/);
+  assert.match(source, /readTenantIdToken/);
+  assert.match(source, /getTenantIdFromIdToken/);
+  assert.match(source, /setInterval/);
+  assert.match(source, /total_links/);
+  assert.match(source, /clicksToday/);
+  assert.match(source, /timeseries\.at\(-1\)/);
+  assert.doesNotMatch(source, /value: "3"/);
+  assert.doesNotMatch(source, /value: "128"/);
 });
 
 test("analytics dashboard includes a github-style daily hits heatmap", () => {
@@ -93,9 +111,16 @@ test("signed-in header shows tenant id as a workspace badge", () => {
   assert.match(authNavSource, /Workspace/);
   assert.doesNotMatch(authNavSource, /Tenant:/);
   assert.match(authNavSource, /<svg/);
-  assert.match(authNavSource, /font-mono/);
-  assert.match(authNavSource, /tabular-nums/);
+  assert.match(authNavSource, /fill="currentColor"/);
+  assert.match(authNavSource, /text-ink/);
+  assert.match(authNavSource, /M12 3\.5/);
+  assert.match(authNavSource, /Comic_Sans_MS/);
+  assert.match(authNavSource, /-rotate-1/);
   assert.match(authNavSource, /text-terracotta/);
+  assert.doesNotMatch(authNavSource, /font-mono/);
+  assert.doesNotMatch(authNavSource, /bg-yellow/);
+  assert.doesNotMatch(authNavSource, /bg-cream/);
+  assert.doesNotMatch(authNavSource, /border-4 border-ink/);
 });
 
 test("app header remains visible while scrolling", () => {
@@ -137,6 +162,11 @@ test("links table supports sorting by slug created clicks and status", () => {
   assert.match(linksSource, /sortKey/);
   assert.match(linksSource, /sortDirection/);
   assert.match(linksSource, /sortedLinks/);
+  assert.match(linksSource, /aria-sort/);
+  assert.match(linksSource, /title=\{`Sort by \$\{label\}`\}/);
+  assert.match(linksSource, /hover:bg-cream/);
+  assert.match(linksSource, /group-hover\/sort/);
+  assert.match(linksSource, /focus:ring-4/);
   for (const key of ["slug", "created_at", "clicks", "status"]) {
     assert.match(linksSource, new RegExp(key));
   }
@@ -147,6 +177,26 @@ test("links table paginates larger result sets", () => {
   assert.match(linksSource, /currentPage/);
   assert.match(linksSource, /paginatedLinks/);
   assert.match(linksSource, /PaginationControls/);
+});
+
+test("links pagination uses icon-only previous and next controls", () => {
+  assert.match(linksSource, /aria-label="Previous page"/);
+  assert.match(linksSource, /aria-label="Next page"/);
+  assert.match(linksSource, /<svg/);
+  assert.doesNotMatch(linksSource, />Previous</);
+  assert.doesNotMatch(linksSource, />Next</);
+  assert.doesNotMatch(linksSource, /retro-button retro-button-secondary min-h-10/);
+});
+
+test("links list supports QR preview and png svg downloads", () => {
+  assert.match(linksSource, /QrCodeActions/);
+  assert.match(qrActionsSource, /fetchLinkQr/);
+  assert.match(qrActionsSource, /downloadLinkQr/);
+  assert.match(qrActionsSource, /Preview QR/);
+  assert.match(qrActionsSource, /Download PNG/);
+  assert.match(qrActionsSource, /Download SVG/);
+  assert.match(apiSource, /\/api\/links\/\$\{encodeURIComponent\(slug\)\}\/qr/);
+  assert.match(apiSource, /format=\$\{format\}/);
 });
 
 test("login UI hides provider-specific Cognito wording", () => {

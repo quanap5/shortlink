@@ -1,15 +1,16 @@
 import secrets
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 
 from app.api.dependencies import (
     get_analytics_query_service,
     get_click_event_service,
     get_link_creation_service,
     get_link_repository,
+    get_qr_code_service,
     get_redirect_service,
     get_tenant_id,
     get_tenant_registration_service,
@@ -42,6 +43,7 @@ from app.schemas.tenants import (
 )
 from app.services.analytics import AnalyticsQueryService
 from app.services.links import ClickEventService, LinkCreationService, RedirectService
+from app.services.qr_codes import QrCodeService
 from app.services.tenants import TenantRegistrationService
 
 router = APIRouter()
@@ -52,6 +54,7 @@ LinkRepositoryDependency = Annotated[LinkRepository, Depends(get_link_repository
 RedirectDependency = Annotated[RedirectService, Depends(get_redirect_service)]
 ClickEventDependency = Annotated[ClickEventService, Depends(get_click_event_service)]
 AnalyticsQueryDependency = Annotated[AnalyticsQueryService, Depends(get_analytics_query_service)]
+QrCodeDependency = Annotated[QrCodeService, Depends(get_qr_code_service)]
 TenantRegistrationDependency = Annotated[
     TenantRegistrationService,
     Depends(get_tenant_registration_service),
@@ -319,6 +322,48 @@ def get_link_analytics(
     )
 
 
+@router.get("/api/links/{slug}/qr")
+@router.get("/links/{slug}/qr")
+def get_link_qr_code(
+    slug: str,
+    tenant_id: TenantId,
+    service: QrCodeDependency,
+    image_format: Annotated[Literal["png", "svg"], Query(alias="format")] = "png",
+) -> Response:
+    try:
+        asset = service.generate_for_link(
+            tenant_id=tenant_id,
+            slug=slug,
+            image_format=image_format,
+        )
+    except LinkNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Link not found") from exc
+    return Response(content=asset.content, media_type=asset.media_type)
+
+
+@router.get("/api/links/{slug}/qr/download")
+@router.get("/links/{slug}/qr/download")
+def download_link_qr_code(
+    slug: str,
+    tenant_id: TenantId,
+    service: QrCodeDependency,
+    image_format: Annotated[Literal["png", "svg"], Query(alias="format")] = "png",
+) -> Response:
+    try:
+        asset = service.generate_for_link(
+            tenant_id=tenant_id,
+            slug=slug,
+            image_format=image_format,
+        )
+    except LinkNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Link not found") from exc
+    return Response(
+        content=asset.content,
+        headers={"Content-Disposition": f'attachment; filename="{asset.filename}"'},
+        media_type=asset.media_type,
+    )
+
+
 @router.get("/{slug}")
 def redirect_link(
     slug: str,
@@ -346,6 +391,7 @@ def redirect_link(
         latitude=_float_header(request, "cloudfront-viewer-latitude"),
         longitude=_float_header(request, "cloudfront-viewer-longitude"),
         referrer=request.headers.get("referer"),
+        source=request.query_params.get("src"),
         visitor_id=visitor_id,
     )
     response = RedirectResponse(url=link.target_url, status_code=link.redirect_type)
