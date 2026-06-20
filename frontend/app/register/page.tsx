@@ -88,7 +88,13 @@ export default function RegisterPage() {
       </form>
       {state === "success" ? (
         <div className="mt-5 border-4 border-ink bg-vintage-mint p-4 text-sm font-black text-ink">
-          Verify your email, then use Login to enter the dashboard.
+          <p>Verify your email, then use Login to enter the dashboard.</p>
+          <Link
+            className="mt-3 inline-flex border-2 border-ink bg-white px-3 py-2 shadow-retro-sm"
+            href={`/verify-email?email=${encodeURIComponent(ownerEmail)}`}
+          >
+            Enter verification code
+          </Link>
         </div>
       ) : null}
     </section>

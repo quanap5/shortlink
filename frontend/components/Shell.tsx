@@ -14,7 +14,7 @@ const navItems = [
 export function Shell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-vintage-paper text-ink">
-      <header className="border-b-4 border-ink bg-cream">
+      <header className="sticky top-0 z-50 border-b-4 border-ink bg-cream shadow-retro-sm">
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-5 py-4 md:flex-row md:items-center md:justify-between">
           <Link href="/" className="flex min-h-11 items-center gap-3 tracking-normal">
             <span className="grid h-12 w-12 overflow-hidden border-4 border-ink bg-chocolate shadow-retro-sm">

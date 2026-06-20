@@ -1,5 +1,6 @@
 from collections import Counter
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 
 import boto3
@@ -39,6 +40,7 @@ class DynamoDBLinkRepository(LinkRepository):
             "expire_at": link.expire_at.isoformat() if link.expire_at else None,
             "status": link.status,
             "redirect_type": link.redirect_type,
+            "tags": link.tags or [],
         }
         try:
             condition = "attribute_not_exists(tenant_id) AND attribute_not_exists(slug)"
@@ -55,18 +57,16 @@ class DynamoDBLinkRepository(LinkRepository):
     def get(self, tenant_id: str, slug: str) -> Link | None:
         response = self._table.get_item(Key={"tenant_id": tenant_id, "slug": slug})
         item = response.get("Item")
-        if not item:
-            return None
-        return Link(
-            tenant_id=item["tenant_id"],
-            slug=item["slug"],
-            target_url=item["target_url"],
-            created_at=datetime.fromisoformat(item["created_at"]),
-            created_by=item.get("created_by"),
-            expire_at=_datetime_or_none(item.get("expire_at")),
-            status=item.get("status", "active"),
-            redirect_type=int(item.get("redirect_type", 302)),
+        return _link_from_item(item) if item else None
+
+    def get_by_slug(self, slug: str) -> Link | None:
+        response = self._table.query(
+            IndexName="slug_index",
+            KeyConditionExpression=Key("slug").eq(slug),
+            Limit=1,
         )
+        items = response.get("Items", [])
+        return _link_from_item(items[0]) if items else None
 
     def list_by_tenant(self, tenant_id: str) -> list[Link]:
         response = self._table.query(
@@ -74,16 +74,7 @@ class DynamoDBLinkRepository(LinkRepository):
             ExpressionAttributeValues={":tenant_id": tenant_id},
         )
         return [
-            Link(
-                tenant_id=item["tenant_id"],
-                slug=item["slug"],
-                target_url=item["target_url"],
-                created_at=datetime.fromisoformat(item["created_at"]),
-                created_by=item.get("created_by"),
-                expire_at=_datetime_or_none(item.get("expire_at")),
-                status=item.get("status", "active"),
-                redirect_type=int(item.get("redirect_type", 302)),
-            )
+            _link_from_item(item)
             for item in response.get("Items", [])
         ]
 
@@ -140,8 +131,8 @@ class DynamoDBClickEventRepository(ClickEventPublisher, ClickEventRepository):
                 "country": event.country,
                 "region": event.region,
                 "city": event.city,
-                "latitude": event.latitude,
-                "longitude": event.longitude,
+                "latitude": _decimal_or_none(event.latitude),
+                "longitude": _decimal_or_none(event.longitude),
                 "referrer": event.referrer,
                 "device_family": event.device_family,
                 "browser_family": event.browser_family,
@@ -200,6 +191,20 @@ class DynamoDBClickEventRepository(ClickEventPublisher, ClickEventRepository):
                 )
             )
         return sorted(summaries, key=lambda item: item.total_hits, reverse=True)
+
+
+def _link_from_item(item: dict[str, Any]) -> Link:
+    return Link(
+        tenant_id=item["tenant_id"],
+        slug=item["slug"],
+        target_url=item["target_url"],
+        created_at=datetime.fromisoformat(item["created_at"]),
+        created_by=item.get("created_by"),
+        expire_at=_datetime_or_none(item.get("expire_at")),
+        status=item.get("status", "active"),
+        redirect_type=int(item.get("redirect_type", 302)),
+        tags=[str(tag) for tag in item.get("tags", [])],
+    )
 
 
 def _click_event_from_item(item: dict[str, Any]) -> ClickEvent:
@@ -284,6 +289,12 @@ def _float_or_none(value: Any) -> float | None:
     if value is None or value == "":
         return None
     return float(value)
+
+
+def _decimal_or_none(value: float | None) -> Decimal | None:
+    if value is None:
+        return None
+    return Decimal(str(value))
 
 
 def _datetime_or_none(value: Any) -> datetime | None:

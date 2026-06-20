@@ -17,6 +17,18 @@ export type TokenResponse = {
   token_type: string;
 };
 
+type TokenErrorResponse = {
+  error?: string;
+  error_description?: string;
+};
+
+type IdTokenClaims = {
+  email?: string;
+  exp?: number;
+  "custom:role"?: string;
+  "custom:tenant_id"?: string;
+};
+
 const CONFIG_PATH = "/auth-config.json";
 const CODE_VERIFIER_KEY = "shortlink.pkce.codeVerifier";
 const OAUTH_STATE_KEY = "shortlink.oauth.state";
@@ -108,9 +120,21 @@ export async function exchangeCodeForTokens(
     body,
   });
   if (!response.ok) {
-    throw new Error("Token exchange failed.");
+    throw new Error(await readTokenErrorMessage(response));
   }
   return response.json() as Promise<TokenResponse>;
+}
+
+export async function readTokenErrorMessage(response: Response): Promise<string> {
+  try {
+    const body = (await response.json()) as TokenErrorResponse;
+    const code = typeof body.error === "string" ? body.error : "unknown_error";
+    const description =
+      typeof body.error_description === "string" ? `: ${body.error_description}` : "";
+    return `Token exchange failed (${code}${description}).`;
+  } catch {
+    return `Token exchange failed (${response.status}).`;
+  }
 }
 
 export function saveTokens(tokens: TokenResponse): void {
@@ -138,6 +162,23 @@ export function readAccessToken(): string | null {
   return readTokens()?.access_token ?? null;
 }
 
+export function readIdToken(): string | null {
+  return readTokens()?.id_token ?? null;
+}
+
+export function readTenantIdToken(): string | null {
+  const idToken = readIdToken();
+  if (!idToken) {
+    return null;
+  }
+  const tenantId = getTenantIdFromIdToken(idToken);
+  if (!tenantId || isIdTokenExpired(idToken)) {
+    clearTokens();
+    return null;
+  }
+  return idToken;
+}
+
 export function buildLogoutUrl(config: AuthConfig): string {
   const params = new URLSearchParams({
     client_id: config.clientId,
@@ -147,11 +188,31 @@ export function buildLogoutUrl(config: AuthConfig): string {
 }
 
 export function getEmailFromIdToken(idToken: string): string | null {
-  const [, payload] = idToken.split(".");
-  if (!payload) {
+  return decodeIdTokenClaims(idToken)?.email ?? null;
+}
+
+export function getTenantIdFromIdToken(idToken: string): string | null {
+  return decodeIdTokenClaims(idToken)?.["custom:tenant_id"] ?? null;
+}
+
+function isIdTokenExpired(idToken: string): boolean {
+  const exp = decodeIdTokenClaims(idToken)?.exp;
+  if (typeof exp !== "number") {
+    return true;
+  }
+  return exp <= Math.floor(Date.now() / 1000);
+}
+
+function decodeIdTokenClaims(idToken: string): IdTokenClaims | null {
+  try {
+    const [, payload] = idToken.split(".");
+    if (!payload) {
+      return null;
+    }
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+    return JSON.parse(atob(padded)) as IdTokenClaims;
+  } catch {
     return null;
   }
-  const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
-  const json = JSON.parse(atob(normalized)) as { email?: string };
-  return json.email ?? null;
 }

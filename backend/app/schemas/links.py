@@ -11,6 +11,7 @@ class CreateLinkRequest(BaseModel):
     expire_after_days: int | None = Field(default=None, ge=1)
     status: Literal["active", "disabled", "expired"] = "active"
     redirect_type: Literal[301, 302, 307] = 302
+    tags: list[str] = Field(default_factory=list, max_length=10)
 
     @field_validator("slug")
     @classmethod
@@ -18,6 +19,18 @@ class CreateLinkRequest(BaseModel):
         if value is None:
             return None
         return value.strip().lower()
+
+    @field_validator("tags")
+    @classmethod
+    def normalize_tags(cls, value: list[str]) -> list[str]:
+        normalized_tags: list[str] = []
+        seen: set[str] = set()
+        for tag in value:
+            normalized = tag.strip().lower()
+            if normalized not in seen:
+                normalized_tags.append(normalized)
+                seen.add(normalized)
+        return normalized_tags
 
 
 class LinkResponse(BaseModel):
@@ -31,6 +44,7 @@ class LinkResponse(BaseModel):
     expire_at: datetime | None = None
     status: str
     redirect_type: int
+    tags: list[str] = Field(default_factory=list)
 
 
 class LinksResponse(BaseModel):

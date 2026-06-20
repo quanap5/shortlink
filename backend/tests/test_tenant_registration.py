@@ -11,7 +11,7 @@ from app.domain.models import Tenant
 from app.repositories.cognito import compute_secret_hash
 from app.repositories.dynamodb import _tenant_from_item
 from app.repositories.memory import InMemoryTenantRepository
-from app.schemas.tenants import RegisterTenantRequest
+from app.schemas.tenants import RegisterTenantRequest, VerifyTenantEmailRequest
 from app.services.tenants import (
     CognitoRegistrationUser,
     TenantRegistrationService,
@@ -28,6 +28,12 @@ class FakeCognitoRegistration:
         if self.should_fail:
             raise TenantRegistrationError("cognito unavailable")
         self.created_users.append(user)
+
+    def confirm_owner_email(self, *, email: str, confirmation_code: str) -> None:
+        if self.should_fail:
+            raise TenantRegistrationError("cognito unavailable")
+        self.confirmed_email = email
+        self.confirmed_code = confirmation_code
 
 
 def test_memory_tenant_repository_rejects_duplicate_tenant_id() -> None:
@@ -118,6 +124,19 @@ def test_register_tenant_rolls_back_pending_tenant_when_cognito_fails() -> None:
     assert tenants.get("acme-inc") is None
 
 
+def test_verify_tenant_owner_email_confirms_cognito_signup() -> None:
+    cognito = FakeCognitoRegistration()
+    service = TenantRegistrationService(InMemoryTenantRepository(), cognito)
+
+    service.verify_owner_email(
+        owner_email=" Owner@Example.com ",
+        confirmation_code=" 123456 ",
+    )
+
+    assert cognito.confirmed_email == "owner@example.com"
+    assert cognito.confirmed_code == "123456"
+
+
 def test_compute_secret_hash_matches_cognito_algorithm() -> None:
     expected = base64.b64encode(
         hmac.new(
@@ -184,3 +203,26 @@ def test_register_tenant_route_returns_pending_tenant_response() -> None:
     assert response.name == "Acme Inc"
     assert response.owner_email == "owner@example.com"
     assert response.status == "pending_verification"
+
+
+class FakeTenantVerificationService(FakeTenantRegistrationService):
+    def verify_owner_email(self, *, owner_email: str, confirmation_code: str) -> None:
+        self.owner_email = owner_email
+        self.confirmation_code = confirmation_code
+
+
+def test_verify_tenant_email_route_confirms_owner_signup() -> None:
+    from app.api.routes import verify_tenant_email
+
+    service = FakeTenantVerificationService()
+    response = verify_tenant_email(
+        VerifyTenantEmailRequest(
+            owner_email="Owner@Example.com",
+            confirmation_code="123456",
+        ),
+        service,  # type: ignore[arg-type]
+    )
+
+    assert response == {"status": "verified"}
+    assert service.owner_email == "Owner@Example.com"
+    assert service.confirmation_code == "123456"

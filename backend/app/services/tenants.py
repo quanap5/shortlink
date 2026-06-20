@@ -39,6 +39,9 @@ class CognitoRegistration(Protocol):
     def sign_up_owner(self, user: CognitoRegistrationUser) -> None:
         raise NotImplementedError
 
+    def confirm_owner_email(self, *, email: str, confirmation_code: str) -> None:
+        raise NotImplementedError
+
 
 class TenantRegistrationService:
     def __init__(
@@ -92,6 +95,17 @@ class TenantRegistrationService:
 
         logger.info("tenant_registered tenant_id=%s owner_email=%s", tenant_id, email)
         return tenant
+
+    def verify_owner_email(self, *, owner_email: str, confirmation_code: str) -> None:
+        email = normalize_email(owner_email)
+        code = confirmation_code.strip()
+        if not code:
+            raise ValueError("Verification code is required.")
+        self._cognito_registration.confirm_owner_email(
+            email=email,
+            confirmation_code=code,
+        )
+        logger.info("tenant_owner_email_verified owner_email=%s", email)
 
 
 def normalize_tenant_id(value: str) -> str:

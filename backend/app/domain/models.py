@@ -17,6 +17,7 @@ class Link:
     expire_at: datetime | None = None
     status: LinkStatus = "active"
     redirect_type: RedirectType = 302
+    tags: list[str] | None = None
 
 
 @dataclass(frozen=True)

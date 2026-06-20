@@ -12,3 +12,8 @@ class RegisterTenantResponse(BaseModel):
     name: str
     owner_email: str
     status: str
+
+
+class VerifyTenantEmailRequest(BaseModel):
+    owner_email: str = Field(min_length=3, max_length=320)
+    confirmation_code: str = Field(min_length=1, max_length=32)

@@ -33,6 +33,10 @@ export class ShortLinkStack extends cdk.Stack {
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: RemovalPolicy.DESTROY,
     });
+    linksTable.addGlobalSecondaryIndex({
+      indexName: "slug_index",
+      partitionKey: { name: "slug", type: dynamodb.AttributeType.STRING },
+    });
 
     const clickEventsTable = new dynamodb.Table(this, "ClickEventsTable", {
       partitionKey: { name: "tenant_id", type: dynamodb.AttributeType.STRING },
@@ -223,7 +227,7 @@ export class ShortLinkStack extends cdk.Stack {
     clickEventsQueue.grantConsumeMessages(clickEventConsumerFunction);
     backendFunction.addToRolePolicy(
       new iam.PolicyStatement({
-        actions: ["cognito-idp:SignUp"],
+        actions: ["cognito-idp:ConfirmSignUp", "cognito-idp:SignUp"],
         resources: [userPool.userPoolArn],
       }),
     );
@@ -264,6 +268,11 @@ export class ShortLinkStack extends cdk.Stack {
     });
     api.addRoutes({
       path: "/tenants/register",
+      methods: [apigatewayv2.HttpMethod.POST],
+      integration: backendIntegration,
+    });
+    api.addRoutes({
+      path: "/tenants/verify-email",
       methods: [apigatewayv2.HttpMethod.POST],
       integration: backendIntegration,
     });
@@ -362,6 +371,7 @@ function handler(event) {
         "login": frontendBehavior,
         "logout": frontendBehavior,
         "register": frontendBehavior,
+        "verify-email": frontendBehavior,
         "twinqx-logo.jpg": frontendBehavior,
       },
       defaultRootObject: "index.html",

@@ -13,12 +13,14 @@ type LinkStatus = "active" | "disabled" | "expired";
 type RedirectType = 301 | 302 | 307;
 
 const SLUG_PATTERN = /^[a-z0-9-_]{3,64}$/;
+const TAG_PATTERN = /^[a-z0-9-_]{1,24}$/;
 const BLOCKED_SCHEMES = new Set(["javascript:", "data:", "file:"]);
 const INTERNAL_SUFFIXES = [".internal", ".local", ".localhost", ".lan"];
 
 export default function CreateLinkPage() {
   const [slugMode, setSlugMode] = useState<SlugMode>("auto");
   const [slug, setSlug] = useState("");
+  const [tagsInput, setTagsInput] = useState("");
   const [targetUrl, setTargetUrl] = useState("");
   const [expirationMode, setExpirationMode] = useState<ExpirationMode>("never");
   const [expireAt, setExpireAt] = useState("");
@@ -38,6 +40,11 @@ export default function CreateLinkPage() {
 
     const normalizedTargetUrl = targetUrl.trim();
     const normalizedSlug = slug.trim().replace(/^\/+/, "").toLowerCase();
+    const parsedTags = parseTags(tagsInput);
+    if (parsedTags.error) {
+      setError(parsedTags.error);
+      return;
+    }
     const validationError = validateForm({
       expirationMode,
       expireAfterDays,
@@ -61,6 +68,7 @@ export default function CreateLinkPage() {
           : {}),
         redirect_type: redirectType,
         status: linkStatus,
+        tags: parsedTags.tags,
         target_url: normalizedTargetUrl,
       };
       const [config, link] = await Promise.all([loadAuthConfig(), createLink(payload)]);
@@ -131,6 +139,19 @@ export default function CreateLinkPage() {
               </Field>
             ) : null}
           </fieldset>
+
+          <Field
+            helper="Optional. Use comma-separated tags like campaign, docs, launch."
+            label="Tags"
+          >
+            <input
+              className="retro-input"
+              name="tags"
+              onChange={(event) => setTagsInput(event.target.value)}
+              placeholder="campaign, docs, launch"
+              value={tagsInput}
+            />
+          </Field>
 
           <fieldset className="space-y-3">
             <legend className="text-sm font-black text-ink">Expiration</legend>
@@ -318,6 +339,31 @@ function validateForm({
     }
   }
   return null;
+}
+
+function parseTags(value: string): { error: string | null; tags: string[] } {
+  if (!value.trim()) {
+    return { error: null, tags: [] };
+  }
+  const tags: string[] = [];
+  const seen = new Set<string>();
+  for (const rawTag of value.split(",")) {
+    const tag = rawTag.trim().toLowerCase();
+    if (!TAG_PATTERN.test(tag)) {
+      return {
+        error: "Tags must use lowercase letters, numbers, hyphen, or underscore.",
+        tags: [],
+      };
+    }
+    if (!seen.has(tag)) {
+      tags.push(tag);
+      seen.add(tag);
+    }
+  }
+  if (tags.length > 10) {
+    return { error: "A link can have at most 10 tags.", tags: [] };
+  }
+  return { error: null, tags };
 }
 
 function validateTargetUrl(value: string): string | null {

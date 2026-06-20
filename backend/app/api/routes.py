@@ -35,7 +35,11 @@ from app.schemas.analytics import (
     LinkAnalyticsResponse,
 )
 from app.schemas.links import CreateLinkRequest, LinkResponse, LinksResponse
-from app.schemas.tenants import RegisterTenantRequest, RegisterTenantResponse
+from app.schemas.tenants import (
+    RegisterTenantRequest,
+    RegisterTenantResponse,
+    VerifyTenantEmailRequest,
+)
 from app.services.analytics import AnalyticsQueryService
 from app.services.links import ClickEventService, LinkCreationService, RedirectService
 from app.services.tenants import TenantRegistrationService
@@ -97,6 +101,29 @@ def register_tenant(
     )
 
 
+@router.post("/tenants/verify-email")
+def verify_tenant_email(
+    payload: VerifyTenantEmailRequest,
+    service: TenantRegistrationDependency,
+) -> dict[str, str]:
+    try:
+        service.verify_owner_email(
+            owner_email=payload.owner_email,
+            confirmation_code=payload.confirmation_code,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    except TenantRegistrationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired verification code.",
+        ) from exc
+    return {"status": "verified"}
+
+
 @router.post("/links", response_model=LinkResponse, status_code=status.HTTP_201_CREATED)
 def create_link(
     payload: CreateLinkRequest,
@@ -112,6 +139,7 @@ def create_link(
             expire_after_days=payload.expire_after_days,
             status=payload.status,
             redirect_type=payload.redirect_type,
+            tags=payload.tags,
         )
     except LinkAlreadyExistsError as exc:
         raise HTTPException(
@@ -295,18 +323,17 @@ def get_link_analytics(
 def redirect_link(
     slug: str,
     request: Request,
-    tenant_id: TenantId,
     redirect_service: RedirectDependency,
     click_service: ClickEventDependency,
 ) -> RedirectResponse:
     try:
-        link = redirect_service.resolve(tenant_id=tenant_id, slug=slug)
+        link = redirect_service.resolve_public(slug=slug)
     except (LinkNotFoundError, LinkInactiveError) as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Link not found") from exc
 
     visitor_id = request.cookies.get("shortlink_vid") or _new_visitor_id()
     click_service.record_click(
-        tenant_id=tenant_id,
+        tenant_id=link.tenant_id,
         slug=slug,
         target_url=link.target_url,
         user_agent=request.headers.get("user-agent"),
@@ -322,6 +349,9 @@ def redirect_link(
         visitor_id=visitor_id,
     )
     response = RedirectResponse(url=link.target_url, status_code=link.redirect_type)
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
     if "shortlink_vid" not in request.cookies:
         response.set_cookie(
             "shortlink_vid",

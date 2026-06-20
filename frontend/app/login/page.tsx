@@ -6,7 +6,7 @@ import {
   createOAuthState,
   createPkcePair,
   loadAuthConfig,
-  readTokens,
+  readTenantIdToken,
   saveCodeVerifier,
   saveOAuthState,
 } from "@/lib/auth";
@@ -17,8 +17,8 @@ export default function LoginPage() {
   const [email, setEmail] = useState<string | null>(null);
 
   useEffect(() => {
-    const tokens = readTokens();
-    if (tokens?.id_token) {
+    const token = readTenantIdToken();
+    if (token) {
       setEmail("Signed in");
     }
   }, []);

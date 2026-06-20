@@ -35,6 +35,21 @@ class CognitoRegistrationAdapter:
         except ClientError as exc:
             raise TenantRegistrationError("Unable to register user.") from exc
 
+    def confirm_owner_email(self, *, email: str, confirmation_code: str) -> None:
+        try:
+            self._client.confirm_sign_up(
+                ClientId=self._client_id,
+                SecretHash=compute_secret_hash(
+                    username=email,
+                    client_id=self._client_id,
+                    client_secret=self._client_secret,
+                ),
+                Username=email,
+                ConfirmationCode=confirmation_code,
+            )
+        except ClientError as exc:
+            raise TenantRegistrationError("Unable to verify email.") from exc
+
 
 def compute_secret_hash(*, username: str, client_id: str, client_secret: str) -> str:
     message = f"{username}{client_id}".encode()

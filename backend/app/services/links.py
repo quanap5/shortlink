@@ -13,7 +13,9 @@ from app.repositories.interfaces import ClickEventPublisher, LinkRepository
 
 logger = logging.getLogger(__name__)
 SLUG_PATTERN = re.compile(r"^[a-z0-9-_]{3,64}$")
+TAG_PATTERN = re.compile(r"^[a-z0-9-_]{1,24}$")
 MAX_GENERATED_SLUG_ATTEMPTS = 8
+MAX_TAGS_PER_LINK = 10
 PRIVATE_HOSTNAMES = {"localhost"}
 INTERNAL_HOST_SUFFIXES = (".internal", ".local", ".localhost", ".lan")
 
@@ -38,6 +40,7 @@ class LinkCreationService:
         expire_after_days: int | None = None,
         status: LinkStatus = "active",
         redirect_type: RedirectType = 302,
+        tags: list[str] | None = None,
         now: datetime | None = None,
     ) -> Link:
         now = now or utc_now()
@@ -54,7 +57,8 @@ class LinkCreationService:
             raise ValueError("Status must be active, disabled, or expired.")
         if redirect_type not in (301, 302, 307):
             raise ValueError("Redirect type must be 301, 302, or 307.")
-        if self._links.get(tenant_id, slug):
+        normalized_tags = normalize_tags(tags)
+        if self._links.get(tenant_id, slug) or self._links.get_by_slug(slug):
             raise LinkAlreadyExistsError(slug)
 
         link = Link(
@@ -66,6 +70,7 @@ class LinkCreationService:
             expire_at=expire_at,
             status=status,
             redirect_type=redirect_type,
+            tags=normalized_tags,
         )
         logger.info("link_created tenant_id=%s slug=%s", tenant_id, slug)
         return self._links.create(link)
@@ -73,7 +78,11 @@ class LinkCreationService:
     def _generate_available_slug(self, tenant_id: str) -> str:
         for _ in range(MAX_GENERATED_SLUG_ATTEMPTS):
             slug = self._slug_generator()
-            if SLUG_PATTERN.fullmatch(slug) and self._links.get(tenant_id, slug) is None:
+            if (
+                SLUG_PATTERN.fullmatch(slug)
+                and self._links.get(tenant_id, slug) is None
+                and self._links.get_by_slug(slug) is None
+            ):
                 return slug
         raise ValueError("Unable to generate a unique slug.")
 
@@ -84,6 +93,13 @@ class RedirectService:
 
     def resolve(self, *, tenant_id: str, slug: str, now: datetime | None = None) -> Link:
         link = self._links.get(tenant_id, slug)
+        return self._resolve_link(link=link, slug=slug, now=now)
+
+    def resolve_public(self, *, slug: str, now: datetime | None = None) -> Link:
+        link = self._links.get_by_slug(slug)
+        return self._resolve_link(link=link, slug=slug, now=now)
+
+    def _resolve_link(self, *, link: Link | None, slug: str, now: datetime | None = None) -> Link:
         if link is None:
             raise LinkNotFoundError(slug)
         now = now or utc_now()
@@ -150,6 +166,23 @@ def generate_slug() -> str:
 
 def normalize_slug(slug: str) -> str:
     return slug.strip().lower()
+
+
+def normalize_tags(tags: list[str] | None) -> list[str]:
+    if not tags:
+        return []
+    normalized_tags: list[str] = []
+    seen: set[str] = set()
+    for tag in tags:
+        normalized = tag.strip().lower()
+        if not TAG_PATTERN.fullmatch(normalized):
+            raise ValueError("Tag must match ^[a-z0-9-_]{1,24}$.")
+        if normalized not in seen:
+            normalized_tags.append(normalized)
+            seen.add(normalized)
+    if len(normalized_tags) > MAX_TAGS_PER_LINK:
+        raise ValueError("Tags cannot include more than 10 unique values.")
+    return normalized_tags
 
 
 def validate_target_url(target_url: str) -> str:
