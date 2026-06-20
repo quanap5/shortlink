@@ -6,26 +6,26 @@ import {
   createOAuthState,
   createPkcePair,
   loadAuthConfig,
-  readTokens,
+  readTenantIdToken,
   saveCodeVerifier,
   saveOAuthState,
 } from "@/lib/auth";
 
 export default function LoginPage() {
-  const [status, setStatus] = useState("Ready to sign in with Cognito.");
+  const [status, setStatus] = useState("Ready to sign in.");
   const [isLoading, setIsLoading] = useState(false);
   const [email, setEmail] = useState<string | null>(null);
 
   useEffect(() => {
-    const tokens = readTokens();
-    if (tokens?.id_token) {
+    const token = readTenantIdToken();
+    if (token) {
       setEmail("Signed in");
     }
   }, []);
 
   async function startLogin() {
     setIsLoading(true);
-    setStatus("Redirecting to Cognito...");
+    setStatus("Opening secure sign in...");
     try {
       const config = await loadAuthConfig();
       const pkce = await createPkcePair();
@@ -53,7 +53,7 @@ export default function LoginPage() {
         disabled={isLoading}
         onClick={startLogin}
       >
-        Sign in with Cognito
+        Sign in
       </button>
     </section>
   );

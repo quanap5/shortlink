@@ -2,8 +2,9 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from app.api.routes import _float_header
+from app.api.routes import _float_header, redirect_link
 from app.domain.errors import LinkAlreadyExistsError, LinkInactiveError, LinkNotFoundError
+from app.domain.models import Link
 from app.repositories.memory import InMemoryClickEventRepository, InMemoryLinkRepository
 from app.services.links import ClickEventService, LinkCreationService, RedirectService
 
@@ -19,19 +20,19 @@ def test_create_link_is_tenant_isolated() -> None:
 
     tenant_a = service.create_link(
         tenant_id="tenant-a",
-        slug="launch",
+        slug="launch-a",
         target_url="https://example.com/a",
     )
     tenant_b = service.create_link(
         tenant_id="tenant-b",
-        slug="launch",
+        slug="launch-b",
         target_url="https://example.com/b",
     )
 
     assert tenant_a.target_url == "https://example.com/a"
     assert tenant_b.target_url == "https://example.com/b"
-    assert links.get("tenant-a", "launch") == tenant_a
-    assert links.get("tenant-b", "launch") == tenant_b
+    assert links.get("tenant-a", "launch-a") == tenant_a
+    assert links.get("tenant-b", "launch-b") == tenant_b
 
 
 def test_create_link_rejects_duplicate_slug_for_same_tenant() -> None:
@@ -41,6 +42,19 @@ def test_create_link_rejects_duplicate_slug_for_same_tenant() -> None:
 
     with pytest.raises(LinkAlreadyExistsError):
         service.create_link(tenant_id="tenant-a", slug="launch", target_url="https://example.org")
+
+
+def test_create_link_rejects_duplicate_public_slug_across_tenants() -> None:
+    links = InMemoryLinkRepository()
+    service = LinkCreationService(links)
+    service.create_link(tenant_id="tenant-a", slug="launch", target_url="https://example.com/a")
+
+    with pytest.raises(LinkAlreadyExistsError):
+        service.create_link(
+            tenant_id="tenant-b",
+            slug="launch",
+            target_url="https://example.com/b",
+        )
 
 
 def test_create_link_generates_slug_when_missing() -> None:
@@ -80,6 +94,43 @@ def test_create_link_normalizes_custom_slug_to_lowercase() -> None:
     )
 
     assert link.slug == "launch_2026"
+
+
+def test_create_link_stores_normalized_tags() -> None:
+    links = InMemoryLinkRepository()
+    service = LinkCreationService(links)
+
+    link = service.create_link(
+        tenant_id="tenant-a",
+        slug="launch",
+        target_url="https://example.com",
+        tags=[" Docs ", "LAUNCH", "docs", "campaign-1"],
+    )
+
+    assert link.tags == ["docs", "launch", "campaign-1"]
+    assert links.get("tenant-a", "launch").tags == ["docs", "launch", "campaign-1"]
+
+
+@pytest.mark.parametrize(
+    "tags",
+    [
+        ["bad tag"],
+        ["bad.tag"],
+        ["a" * 25],
+        [""],
+        [f"tag-{index}" for index in range(11)],
+    ],
+)
+def test_create_link_rejects_invalid_tags(tags: list[str]) -> None:
+    service = LinkCreationService(InMemoryLinkRepository())
+
+    with pytest.raises(ValueError, match="Tag"):
+        service.create_link(
+            tenant_id="tenant-a",
+            slug="launch",
+            target_url="https://example.com",
+            tags=tags,
+        )
 
 
 @pytest.mark.parametrize(
@@ -155,6 +206,22 @@ def test_redirect_service_returns_target_link() -> None:
 
     link = redirect_service.resolve(tenant_id="tenant-a", slug="docs")
 
+    assert link.target_url == "https://example.com/docs"
+
+
+def test_redirect_service_resolves_public_slug_without_tenant_claim() -> None:
+    links = InMemoryLinkRepository()
+    create_service = LinkCreationService(links)
+    redirect_service = RedirectService(links)
+    create_service.create_link(
+        tenant_id="tenant-a",
+        slug="docs",
+        target_url="https://example.com/docs",
+    )
+
+    link = redirect_service.resolve_public(slug="docs")
+
+    assert link.tenant_id == "tenant-a"
     assert link.target_url == "https://example.com/docs"
 
 
@@ -268,6 +335,8 @@ def test_click_event_service_is_fail_soft_when_publisher_fails() -> None:
 class FakeRequest:
     def __init__(self, headers: dict[str, str]) -> None:
         self.headers = headers
+        self.cookies: dict[str, str] = {}
+        self.client = None
 
 
 def test_float_header_parses_cloudfront_geo_headers() -> None:
@@ -283,3 +352,38 @@ def test_float_header_parses_cloudfront_geo_headers() -> None:
     assert _float_header(request, "cloudfront-viewer-longitude") == 126.978  # type: ignore[arg-type]
     assert _float_header(request, "bad-header") is None  # type: ignore[arg-type]
     assert _float_header(request, "missing-header") is None  # type: ignore[arg-type]
+
+
+class FakeRedirectService:
+    def resolve_public(self, *, slug: str):
+        return Link(
+            tenant_id="tenant-a",
+            slug=slug,
+            target_url="https://example.com/docs",
+            created_at=datetime(2026, 6, 20, tzinfo=UTC),
+            redirect_type=301,
+        )
+
+
+class FakeClickService:
+    def __init__(self) -> None:
+        self.clicks: list[dict[str, object]] = []
+
+    def record_click(self, **kwargs):  # type: ignore[no-untyped-def]
+        self.clicks.append(kwargs)
+
+
+def test_public_redirect_disables_browser_cache_for_analytics() -> None:
+    click_service = FakeClickService()
+
+    response = redirect_link(  # type: ignore[arg-type]
+        slug="docs",
+        request=FakeRequest({"user-agent": "pytest"}),
+        redirect_service=FakeRedirectService(),
+        click_service=click_service,
+    )
+
+    assert response.status_code == 301
+    assert response.headers["location"] == "https://example.com/docs"
+    assert response.headers["cache-control"] == "no-store"
+    assert click_service.clicks[0]["tenant_id"] == "tenant-a"

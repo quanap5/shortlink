@@ -20,6 +20,10 @@ class LinkRepository(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def get_by_slug(self, slug: str) -> Link | None:
+        raise NotImplementedError
+
+    @abstractmethod
     def list_by_tenant(self, tenant_id: str) -> list[Link]:
         raise NotImplementedError
 

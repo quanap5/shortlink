@@ -30,6 +30,12 @@ class InMemoryLinkRepository(LinkRepository):
     def get(self, tenant_id: str, slug: str) -> Link | None:
         return self._links.get((tenant_id, slug))
 
+    def get_by_slug(self, slug: str) -> Link | None:
+        for link in self._links.values():
+            if link.slug == slug:
+                return link
+        return None
+
     def list_by_tenant(self, tenant_id: str) -> list[Link]:
         return [link for link in self._links.values() if link.tenant_id == tenant_id]
 

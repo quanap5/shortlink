@@ -1,6 +1,6 @@
 # Cognito Hosted UI Auth
 
-ShortLink uses Cognito Hosted UI for MVP authentication.
+ShortLink uses Cognito Hosted UI for MVP authentication. The user-facing login copy should stay provider-neutral; do not mention Cognito in visible frontend text.
 
 ## Security Model
 
@@ -27,6 +27,14 @@ It includes:
 - User pool client ID
 - Redirect URI
 - Logout URI
+
+The default hosted domain is the AWS-managed Cognito domain. Production can switch to the branded custom auth domain:
+
+```text
+https://auth.twinqx.com
+```
+
+To enable it, validate the `auth.twinqx.com` ACM certificate in `us-east-1`, set `authDomainName` and `authCertificateArn` in `infra/cdk.json`, deploy CDK, then add the Cognito custom domain alias target as a Cloudflare `CNAME` record with proxy disabled.
 
 For the custom frontend domain, Cognito callback and logout URLs are:
 

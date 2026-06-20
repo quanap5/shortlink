@@ -4,6 +4,8 @@
     "frontendUrl": "https://link.twinqx.com",
     "frontendDomainName": "link.twinqx.com",
     "frontendCertificateArn": "arn:aws:acm:us-east-1:373249432962:certificate/fe7b83cf-bfec-40de-960e-f89bc1876860",
+    "authDomainName": "auth.twinqx.com",
+    "authCertificateArn": "arn:aws:acm:us-east-1:373249432962:certificate/f1564666-0376-437b-99b2-b8b3288104e2",
     "@aws-cdk/aws-lambda:recognizeLayerVersion": true
   }
 }

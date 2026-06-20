@@ -1,4 +1,4 @@
-import { clearTokens, loadAuthConfig, readAccessToken, type AuthConfig } from "@/lib/auth";
+import { clearTokens, loadAuthConfig, readTenantIdToken, type AuthConfig } from "@/lib/auth";
 
 export type LinkResponse = {
   created_at: string;
@@ -7,6 +7,7 @@ export type LinkResponse = {
   redirect_type: 301 | 302 | 307;
   slug: string;
   status: "active" | "disabled" | "expired";
+  tags: string[];
   target_url: string;
   tenant_id: string;
 };
@@ -21,6 +22,7 @@ export type CreateLinkInput = {
   redirect_type?: 301 | 302 | 307;
   slug?: string;
   status?: "active" | "disabled" | "expired";
+  tags?: string[];
   target_url: string;
 };
 
@@ -35,6 +37,11 @@ export type RegisterTenantResponse = {
   owner_email: string;
   status: "pending_verification" | "active" | "failed";
   tenant_id: string;
+};
+
+export type VerifyTenantEmailInput = {
+  confirmation_code: string;
+  owner_email: string;
 };
 
 export type ClickEventResponse = {
@@ -125,9 +132,12 @@ async function readErrorMessage(response: Response): Promise<string> {
 }
 
 async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const token = readAccessToken();
+  const token = readTenantIdToken();
   if (!token) {
-    throw new ApiError("Please sign in before using ShortLink.", 401);
+    throw new ApiError(
+      "Please sign in with a verified tenant account before using ShortLink.",
+      401,
+    );
   }
 
   const config = await loadAuthConfig();
@@ -176,6 +186,21 @@ export async function registerTenant(
   }
 
   return response.json() as Promise<RegisterTenantResponse>;
+}
+
+export async function verifyTenantEmail(input: VerifyTenantEmailInput): Promise<void> {
+  const config = await loadAuthConfig();
+  const response = await fetch(`${config.apiBaseUrl}/tenants/verify-email`, {
+    body: JSON.stringify(input),
+    headers: {
+      "Content-Type": "application/json",
+    },
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    throw new ApiError(await readErrorMessage(response), response.status);
+  }
 }
 
 export async function listLinks(): Promise<LinkResponse[]> {
